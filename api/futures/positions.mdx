@@ -1,5 +1,5 @@
 ---
-title: "Futures Positions & Leverage REST API Reference"
+title: "BitMart Futures Positions & Leverage REST API Reference"
 sidebarTitle: "Positions"
 description: "Query open BitMart futures positions and risk details, set leverage and margin mode, and configure one-way or hedge position modes using FuturesClientV2."
 ---
@@ -53,7 +53,6 @@ getFuturesAccountPositions(params?: {
   |---|---|---|
   | `symbol` | string | Contract symbol |
   | `leverage` | string | Current leverage |
-  | `open_type` | string | (via `position_mode`) Margin type |
   | `current_amount` | string | Open position size (contracts) |
   | `entry_price` | string | Average entry price |
   | `open_avg_price` | string | Average open price |
@@ -450,9 +449,6 @@ async function positionDashboard() {
   console.log(`\n=== Futures Position Dashboard ===`);
   console.log(`Mode: ${mode.data.position_mode}`);
   console.log(`Open positions: ${positions.data.length}\n`);
-
-  // Build a risk map for quick lookup
-  const riskMap = new Map(risks.data.map(r => `${r.symbol}_${r.position_side}`, r => r));
 
   for (const pos of positions.data) {
     const risk = risks.data.find(

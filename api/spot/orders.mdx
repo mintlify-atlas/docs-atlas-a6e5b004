@@ -729,6 +729,53 @@ for (const trade of response.data) {
 
 ---
 
+### `getSpotAccountOrderTradesV4(params)`
+
+Returns all individual trade fills for a single specific order. Use this to get the complete fill breakdown when an order was partially or fully executed across multiple trades.
+
+```typescript
+getSpotAccountOrderTradesV4(params: {
+  orderId: string;
+  recvWindow?: number;
+}): Promise<APIResponse<SpotAccountTradeV4[]>>
+```
+
+<ParamField body="orderId" type="string" required>
+  The exchange-assigned order ID to retrieve fills for.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds (max 60000, default 5000).
+</ParamField>
+
+<CodeGroup>
+```typescript Get All Fills for an Order
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotAccountOrderTradesV4({
+  orderId: '123456789',
+});
+
+let totalFee = 0;
+for (const trade of response.data) {
+  console.log(
+    `[${trade.tradeId}] ${trade.side} ${trade.size} @ ${trade.price} ` +
+    `| fee: ${trade.fee} ${trade.feeCoinName} (${trade.tradeRole})`
+  );
+  totalFee += parseFloat(trade.fee);
+}
+console.log(`Total fees paid: ${totalFee}`);
+```
+</CodeGroup>
+
+---
+
 ## Complete Order Lifecycle Example
 
 The following example demonstrates the full lifecycle of a limit order: place it, poll its status, then cancel it if still open.

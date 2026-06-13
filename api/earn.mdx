@@ -130,7 +130,7 @@ Opens a new flexible saving position for a given product ID and amount. The `req
 ```typescript
 subscribeFlexibleSaving(
   params: EarnFlexibleSubscribeRequest,
-): Promise<APIResponse<{}>>
+): Promise<APIResponse<boolean>>
 ```
 
 **Request type**
@@ -164,7 +164,7 @@ Redeems (withdraws) a specified amount from an existing flexible saving position
 ```typescript
 redeemFlexibleSaving(
   params: EarnFlexibleRedeemRequest,
-): Promise<APIResponse<{}>>
+): Promise<APIResponse<boolean>>
 ```
 
 **Request type**
@@ -310,7 +310,7 @@ Enables or disables the auto-subscribe feature for a specific flexible saving pr
 ```typescript
 setFlexibleSavingAutoSubscribe(
   params: EarnFlexibleAutoSubscribeOperateRequest,
-): Promise<APIResponse<{}>>
+): Promise<APIResponse<boolean>>
 ```
 
 **Request type**
@@ -438,7 +438,7 @@ Subscribes to a fixed-term saving product. You must specify the post-maturity au
 ```typescript
 subscribeFixedSaving(
   params: EarnFixedSubscribeRequest,
-): Promise<APIResponse<{}>>
+): Promise<APIResponse<boolean>>
 ```
 
 **Request type**
@@ -598,7 +598,7 @@ Redeems a fixed-term position before its maturity date. Early redemption typical
 ```typescript
 redeemFixedSavingEarly(
   params: EarnFixedEarlyRedeemRequest,
-): Promise<APIResponse<{}>>
+): Promise<APIResponse<boolean>>
 ```
 
 **Request type**
@@ -630,7 +630,7 @@ Updates the auto-reinvest behaviour for an existing fixed-term position. You can
 ```typescript
 updateFixedSavingAutoReinvest(
   params: EarnFixedAutoReinvestUpdateRequest,
-): Promise<APIResponse<{}>>
+): Promise<APIResponse<boolean>>
 ```
 
 **Request type**
@@ -667,7 +667,7 @@ Globally enables or disables automatic interest reinvestment across **all** flex
 ```typescript
 setAutoSavingBatch(
   params: EarnAutoSavingBatchOperateRequest,
-): Promise<APIResponse<{}>>
+): Promise<APIResponse<boolean>>
 ```
 
 **Request type**

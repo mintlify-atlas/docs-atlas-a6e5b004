@@ -1,5 +1,5 @@
 ---
-title: "Futures Account & Asset REST API Reference"
+title: "BitMart Futures Account & Asset REST API Reference"
 sidebarTitle: "Account"
 description: "Manage BitMart futures account balances, fee rates, auto-repayment, collateral logs, fund transfers, and sub-account operations using FuturesClientV2."
 ---
@@ -609,5 +609,133 @@ const history = await subClient.getFuturesSubTransferHistory({ limit: 20 });
 for (const record of history.data) {
   console.log(`From: ${record.fromAccount} To: ${record.toAccount} — ${record.amount} ${record.currency}`);
 }
+```
+</CodeGroup>
+
+---
+
+## Affiliate Endpoints
+
+The following methods are available for BitMart futures affiliates to query rebate and trade data for their referred users. All affiliate endpoints require KEYED authentication.
+
+### `getFuturesAffiliateRebates(params)`
+
+Returns a paginated list of rebate records for affiliate-referred users over a specified time range.
+
+**Signature**
+```typescript
+getFuturesAffiliateRebates(
+  params: FuturesAffiliateRebatesRequest,
+): Promise<APIResponse<any>>
+```
+
+<ParamField query="page" type="number" required>
+  Page number for pagination.
+</ParamField>
+
+<ParamField query="size" type="number" required>
+  Number of records per page.
+</ParamField>
+
+<ParamField query="currency" type="string" required>
+  Rebate currency (e.g. `USDT`).
+</ParamField>
+
+<ParamField query="user_id" type="number">
+  Optional filter by referred user ID.
+</ParamField>
+
+<ParamField query="rebate_start_time" type="number">
+  Rebate period start time (Unix ms).
+</ParamField>
+
+<ParamField query="rebate_end_time" type="number">
+  Rebate period end time (Unix ms).
+</ParamField>
+
+<ParamField query="register_start_time" type="number">
+  Filter by user registration start time (Unix ms).
+</ParamField>
+
+<ParamField query="register_end_time" type="number">
+  Filter by user registration end time (Unix ms).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const rebates = await client.getFuturesAffiliateRebates({
+  page: 1,
+  size: 20,
+  currency: 'USDT',
+});
+
+console.log('Affiliate rebates:', JSON.stringify(rebates.data, null, 2));
+```
+</CodeGroup>
+
+---
+
+### `getFuturesAffiliateTrades(params)`
+
+Returns a paginated list of trade records for affiliate-referred users over a specified time range.
+
+**Signature**
+```typescript
+getFuturesAffiliateTrades(
+  params: FuturesAffiliateTradesRequest,
+): Promise<APIResponse<any>>
+```
+
+<ParamField query="page" type="number" required>
+  Page number for pagination.
+</ParamField>
+
+<ParamField query="size" type="number" required>
+  Number of records per page.
+</ParamField>
+
+<ParamField query="type" type="number" required>
+  Trade type: `1` = open, `2` = close.
+</ParamField>
+
+<ParamField query="start_time" type="number" required>
+  Query period start time (Unix ms).
+</ParamField>
+
+<ParamField query="end_time" type="number" required>
+  Query period end time (Unix ms).
+</ParamField>
+
+<ParamField query="user_id" type="number">
+  Optional filter by referred user ID.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const trades = await client.getFuturesAffiliateTrades({
+  page: 1,
+  size: 20,
+  type: 1,
+  start_time: Date.now() - 7 * 86400_000,
+  end_time: Date.now(),
+});
+
+console.log('Affiliate trades:', JSON.stringify(trades.data, null, 2));
 ```
 </CodeGroup>

@@ -568,6 +568,91 @@ for (const kline of response.data.klines) {
 
 ---
 
+### `getSpotKLineStepsV1()`
+
+<Warning>
+  This method is marked `@deprecated`. Use V3 kline endpoints for new integrations.
+</Warning>
+
+Returns the list of supported kline step intervals (in minutes) for V1 kline endpoints.
+
+```typescript
+getSpotKLineStepsV1(): Promise<APIResponse<{ steps: number[] }>>
+```
+
+<CodeGroup>
+```typescript Get Supported Kline Steps
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotKLineStepsV1();
+console.log('Supported kline steps (minutes):', response.data.steps);
+```
+</CodeGroup>
+
+---
+
+### `getSpotOrderBookDepthV1(params)`
+
+<Warning>
+  This method is marked `@deprecated`. Use `getSpotOrderBookDepthV3` for new integrations.
+</Warning>
+
+Returns the order book for a symbol in the legacy V1 format with detailed level data.
+
+```typescript
+getSpotOrderBookDepthV1(params: SpotOrderBookDepthV1Request): Promise<APIResponse<SpotOrderBookDepthResultV1>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `BTC_USDT`.
+</ParamField>
+
+<ParamField query="precision" type="string">
+  Optional. Price precision for grouping order book levels.
+</ParamField>
+
+<ParamField query="size" type="number">
+  Optional. Number of price levels per side.
+</ParamField>
+
+**Response — `SpotOrderBookDepthResultV1`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `timestamp` | `number` | Snapshot timestamp (ms) |
+| `buys` | `SpotBookLevelV1[]` | Bid levels |
+| `sells` | `SpotBookLevelV1[]` | Ask levels |
+
+**`SpotBookLevelV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `amount` | `string` | Total quantity at this level |
+| `total` | `string` | Cumulative total quantity |
+| `price` | `string` | Price level |
+| `count` | `string` | Number of orders at this level |
+
+<CodeGroup>
+```typescript Legacy V1 Order Book
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotOrderBookDepthV1({
+  symbol: 'BTC_USDT',
+  size: 10,
+});
+
+const { buys, sells } = response.data;
+console.log('Top bid:', buys[0]?.price, '×', buys[0]?.amount);
+console.log('Top ask:', sells[0]?.price, '×', sells[0]?.amount);
+```
+</CodeGroup>
+
+---
+
 ## Complete Market Snapshot Example
 
 <CodeGroup>

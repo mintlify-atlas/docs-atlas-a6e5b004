@@ -1,5 +1,5 @@
 ---
-title: "Get Started with the BitMart API SDK"
+title: "Quickstart: Install and Use the BitMart Node.js SDK"
 sidebarTitle: "Quickstart"
 description: "Install the bitmart-api Node.js SDK, create a REST client, fetch live market data, and place your first authenticated order in minutes."
 ---
@@ -29,7 +29,7 @@ pnpm add bitmart-api
 </CodeGroup>
 
 <Note>
-  The package requires **Node.js 20 or later**. Older Node.js releases (such as the end-of-life v18) do not expose the Web Crypto API that the SDK uses for request signing.
+  The package uses the **Web Crypto API** for request signing. Node.js v18 has reached end of life — the current Node.js LTS (v22 or above) is recommended. If you need to run on an older release, inject a custom `customSignMessageFn` using Node's native `createHmac` as shown in the [Authentication](/authentication#custom-signing) page.
 </Note>
 
 ### Import and create a client

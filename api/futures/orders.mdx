@@ -1,5 +1,5 @@
 ---
-title: "Futures Order Management REST API Reference"
+title: "BitMart Futures Order Management REST API Reference"
 sidebarTitle: "Orders"
 description: "Place, modify, cancel, and query BitMart futures orders: open orders, order history, trade fills, and the dead man's switch using FuturesClientV2."
 ---
@@ -96,6 +96,10 @@ submitFuturesOrder(
 
 <ParamField body="preset_stop_loss_price_type" type="number">
   Price type for preset stop-loss: `1` = last price, `2` = mark price.
+</ParamField>
+
+<ParamField body="stp_mode" type="number">
+  Self-trade prevention mode. Controls behaviour when an order would match against another order from the same account.
 </ParamField>
 
 **Response fields (`FuturesOrderSubmitResult`)**
@@ -562,7 +566,7 @@ console.log(`Open: ${openOrders.data.length}, Partial: ${partialOrders.data.leng
 
 ---
 
-### `getFuturesAccountTrades(params?)`
+### `getFuturesAccountTrades(params)`
 
 Returns a list of your trade fills (executions) with PnL and fee information.
 
@@ -640,7 +644,7 @@ console.log(`Total fees: ${totalFees.toFixed(4)} USDT`);
 
 ---
 
-### `getFuturesAccountTransactionHistory(params?)`
+### `getFuturesAccountTransactionHistory(params)`
 
 Returns a detailed ledger of all account transactions including funding settlements, fee payments, deposits, and realised PnL transfers.
 

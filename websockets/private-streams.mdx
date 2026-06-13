@@ -1,5 +1,5 @@
 ---
-title: "Subscribe to Private BitMart WebSocket Streams"
+title: "Subscribe to BitMart Private WebSocket Account Streams"
 sidebarTitle: "Private Streams"
 description: "Stream live account data — orders, positions, and balances — over authenticated BitMart WebSocket connections. Requires API key, secret, and memo."
 ---
@@ -67,11 +67,8 @@ Spot private topics use the `spot/user/` prefix and require the symbol appended 
     Receive real-time updates when account balances change (e.g. after a trade or deposit).
 
     ```typescript
-    // Balance updates — use the asset name as the symbol
-    client.subscribe('spot/user/balance:USDT', 'spot');
-
-    // The special BALANCE_UPDATE topic covers all assets
-    // client.subscribe('spot/user/balance:BALANCE_UPDATE', 'spot');
+    // Balance updates across all assets
+    client.subscribe('spot/user/balance:BALANCE_UPDATE', 'spot');
     ```
   </Step>
 </Steps>
