@@ -1,28 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "BitMart API",
+  "projectType": "sdk-library",
+  "projectName": "BitMart API",
+  "projectDescription": "A complete Node.js/TypeScript SDK for BitMart's REST APIs and WebSockets, supporting spot trading, USD-M futures, and real-time data streams.",
   "theme": "luma",
-  "colors": {
-    "primary": "#0d152d",
-    "light": "#848c94",
-    "dark": "#c9cacf"
-  },
-  "favicon": "https://media.brand.dev/9af7ca08-5ac3-49fd-9432-5a2e6574303c.svg",
-  "logo": {
-    "light": "https://media.brand.dev/74afcedb-15a5-48fa-81f6-92d9c570adc6.svg",
-    "dark": "https://media.brand.dev/1964742a-4107-4ee0-b925-4e79b3624e89.svg"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/tiagosiebler/bitmart-api"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/tiagosiebler/bitmart-api"
-    }
-  },
+  "primaryColor": "#0d152d",
+  "lightColor": "#848c94",
+  "darkColor": "#c9cacf",
   "navigation": {
     "tabs": [
       {
@@ -100,5 +83,44 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "RestClient for spot trading, margin, account management, and earn products",
+    "FuturesClientV2 for USD-M perpetual futures with V2 domain support",
+    "Unified WebsocketClient for real-time spot and futures data streams",
+    "Automatic WebSocket reconnection with topic resubscription",
+    "Full TypeScript support with strongly-typed requests and responses",
+    "Browser-compatible HMAC signing via Web Crypto API",
+    "Demo/simulated trading environment support for futures",
+    "ESM and CJS dual builds with a single npm package",
+    "Custom HMAC sign function injection for improved performance",
+    "Configurable recvWindow globally or per-request"
+  ],
+  "publicApiSurface": [
+    "RestClient",
+    "FuturesClientV2",
+    "WebsocketClient",
+    "RestClientOptions",
+    "WSClientConfigurableOptions",
+    "WsMarket",
+    "WsTopic",
+    "WsKey",
+    "APIResponse",
+    "subscribe(topics, market)",
+    "unsubscribe(topics, market)",
+    "subscribeTopics(topics)",
+    "unsubscribeTopics(topics)",
+    "connectAll()",
+    "getSpotTickersV3()",
+    "getSpotHistoryKlineV3()",
+    "submitSpotOrderV2()",
+    "cancelSpotOrderV3()",
+    "getAccountBalancesV1()",
+    "getFuturesContractDetails()",
+    "getFuturesAccountAssets()",
+    "submitFuturesOrder()",
+    "setFuturesLeverage()",
+    "submitFuturesTPSLOrder()",
+    "submitFuturesPlanOrder()"
+  ]
 }

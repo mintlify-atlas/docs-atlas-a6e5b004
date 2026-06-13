@@ -1,0 +1,152 @@
+---
+title: "Use BitMart's Demo Trading Environment for Testing"
+sidebarTitle: "Demo Trading"
+description: "Enable BitMart's simulated futures trading environment to test strategies safely — available for V2 Futures REST and WebSocket clients."
+---
+
+BitMart provides a simulated (paper) trading environment that mirrors the live futures market without risking real funds. It is designed for testing order flows, position management strategies, and WebSocket integrations before deploying to production. Enabling it requires a single boolean flag in your client constructor — no separate SDK, no separate account, and no change to your API credentials.
+
+## What Is Demo Trading?
+
+The demo environment is a sandboxed replica of BitMart's USD-M futures infrastructure. Prices track the live market but all orders, fills, and positions are simulated. It is the recommended first step when validating a new trading bot or testing SDK integration changes.
+
+<Warning>
+  Demo trading is **only available for V2 Futures**. Setting `demoTrading: true` on a `RestClient` (spot) or on any V1 Futures client has no effect — those clients will silently continue using production endpoints.
+</Warning>
+
+---
+
+## REST Client Setup
+
+Pass `demoTrading: true` to `FuturesClientV2`. The SDK automatically switches the base URL to `https://demo-api-cloud-v2.bitmart.com` for every request made by that client instance.
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const demoFuturesClient = new FuturesClientV2({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+  demoTrading: true, // → https://demo-api-cloud-v2.bitmart.com
+});
+
+// Place a simulated futures order
+const order = await demoFuturesClient.submitFuturesOrder({
+  symbol: 'BTCUSDT',
+  side: 'buy',
+  type: 'limit',
+  size: '0.01',
+  price: '30000',
+  leverage: '10',
+});
+
+console.log('Demo order placed:', order);
+```
+
+---
+
+## WebSocket Client Setup
+
+Pass `demoTrading: true` to `WebsocketClient`. The client connects to `wss://openapi-wsdemo-v2.bitmart.com` for V2 Futures WebSocket streams, while spot streams continue using the production endpoint.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const demoWsClient = new WebsocketClient({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+  demoTrading: true, // → wss://openapi-wsdemo-v2.bitmart.com (futures only)
+});
+
+demoWsClient.on('open', ({ wsKey }) => {
+  console.log('Demo WS connected:', wsKey);
+});
+
+demoWsClient.on('update', (data) => {
+  console.log('Demo data:', JSON.stringify(data, null, 2));
+});
+
+demoWsClient.on('exception', (err) => {
+  console.error('Demo WS error:', err);
+});
+
+// Subscribe to private futures streams on the demo environment
+demoWsClient.subscribe('futures/user/order:BTCUSDT', 'futures');
+demoWsClient.subscribe('futures/user/position:BTCUSDT', 'futures');
+```
+
+---
+
+## API Keys Are Shared
+
+<Note>
+  Your BitMart API keys are the same for both the production and simulated environments. You do not need to create separate credentials for demo trading — simply use your existing `apiKey`, `apiSecret`, and `apiMemo` with `demoTrading: true`.
+</Note>
+
+---
+
+## Live vs Demo Comparison
+
+<Tabs>
+  <Tab title="Live (Production)">
+    ```typescript
+    import { FuturesClientV2, WebsocketClient } from 'bitmart-api';
+
+    // Production REST client — https://api-cloud-v2.bitmart.com
+    const futuresClient = new FuturesClientV2({
+      apiKey: process.env.API_KEY,
+      apiSecret: process.env.API_SECRET,
+      apiMemo: process.env.API_MEMO,
+    });
+
+    // Production WebSocket — wss://openapi-ws-v2.bitmart.com
+    const wsClient = new WebsocketClient({
+      apiKey: process.env.API_KEY,
+      apiSecret: process.env.API_SECRET,
+      apiMemo: process.env.API_MEMO,
+    });
+
+    wsClient.subscribe('futures/user/order:BTCUSDT', 'futures');
+    ```
+  </Tab>
+  <Tab title="Demo (Simulated)">
+    ```typescript
+    import { FuturesClientV2, WebsocketClient } from 'bitmart-api';
+
+    // Demo REST client — https://demo-api-cloud-v2.bitmart.com
+    const futuresClient = new FuturesClientV2({
+      apiKey: process.env.API_KEY,
+      apiSecret: process.env.API_SECRET,
+      apiMemo: process.env.API_MEMO,
+      demoTrading: true, // ← only change needed
+    });
+
+    // Demo WebSocket — wss://openapi-wsdemo-v2.bitmart.com
+    const wsClient = new WebsocketClient({
+      apiKey: process.env.API_KEY,
+      apiSecret: process.env.API_SECRET,
+      apiMemo: process.env.API_MEMO,
+      demoTrading: true, // ← only change needed
+    });
+
+    wsClient.subscribe('futures/user/order:BTCUSDT', 'futures');
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Environment URLs Reference
+
+| Client | Environment | URL |
+|---|---|---|
+| `FuturesClientV2` | Production | `https://api-cloud-v2.bitmart.com` |
+| `FuturesClientV2` | Demo | `https://demo-api-cloud-v2.bitmart.com` |
+| `WebsocketClient` (futures) | Production | `wss://openapi-ws-v2.bitmart.com` |
+| `WebsocketClient` (futures) | Demo | `wss://openapi-wsdemo-v2.bitmart.com` |
+| `RestClient` (spot) | Production only | `https://api-cloud.bitmart.com` |
+
+<Warning>
+  There is no demo environment for spot trading. If you set `demoTrading: true` on a `RestClient`, all requests will still hit the live spot production endpoint. Use dedicated test API keys with minimal balances when validating spot integrations.
+</Warning>

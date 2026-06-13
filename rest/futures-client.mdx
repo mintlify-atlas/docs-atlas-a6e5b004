@@ -1,0 +1,545 @@
+---
+title: "FuturesClientV2: USD-M Futures REST API"
+sidebarTitle: "FuturesClientV2"
+description: "FuturesClientV2 is the dedicated REST client for BitMart's V2 USD-M futures domain, covering orders, positions, plan orders, TP/SL, and asset transfers."
+---
+
+`FuturesClientV2` is the dedicated REST API client for BitMart's USD-M perpetual futures market. It connects exclusively to the V2 domain (`https://api-cloud-v2.bitmart.com`), which hosts BitMart's latest futures endpoints — including order management, position control, plan/TP/SL orders, trailing stop orders, leverage settings, and asset transfers between spot and futures accounts.
+
+<Warning>
+  `FuturesClientV2` connects to `https://api-cloud-v2.bitmart.com` — a **separate base URL** from the main `RestClient` (which uses `https://api-cloud.bitmart.com`). The legacy futures methods on `RestClient` are marked `@deprecated` and will not receive new features. Always use `FuturesClientV2` for USD-M futures trading.
+</Warning>
+
+---
+
+## Initialization
+
+<Steps>
+  <Step title="Install the package">
+    ```bash
+    npm install bitmart-api
+    ```
+  </Step>
+
+  <Step title="Import the client">
+    <Tabs>
+      <Tab title="ESM / TypeScript">
+        ```typescript
+        import { FuturesClientV2 } from 'bitmart-api';
+        ```
+      </Tab>
+      <Tab title="CommonJS">
+        ```javascript
+        const { FuturesClientV2 } = require('bitmart-api');
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Create a client instance">
+    <Tabs>
+      <Tab title="Live Trading">
+        ```typescript
+        import { FuturesClientV2 } from 'bitmart-api';
+
+        const client = new FuturesClientV2({
+          apiKey: 'YOUR_API_KEY',
+          apiSecret: 'YOUR_API_SECRET',
+          apiMemo: 'YOUR_API_MEMO',
+        });
+        ```
+      </Tab>
+      <Tab title="Demo / Simulated Trading">
+        ```typescript
+        import { FuturesClientV2 } from 'bitmart-api';
+
+        // Connects to https://demo-api-cloud-v2.bitmart.com
+        // The same API keys are used for both live and demo environments
+        const demoClient = new FuturesClientV2({
+          apiKey: 'YOUR_API_KEY',
+          apiSecret: 'YOUR_API_SECRET',
+          apiMemo: 'YOUR_API_MEMO',
+          demoTrading: true,
+        });
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+### Constructor Options
+
+`FuturesClientV2` accepts the same `RestClientOptions` interface as `RestClient`:
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  // Authentication
+  apiKey: 'YOUR_API_KEY',
+  apiSecret: 'YOUR_API_SECRET',
+  apiMemo: 'YOUR_API_MEMO',
+
+  // Demo trading environment (V2 Futures only)
+  demoTrading: false,            // Set true to use https://demo-api-cloud-v2.bitmart.com
+
+  // Optional tuning
+  recvWindow: 5000,              // Request validity window in ms
+  strictParamValidation: false,  // Throw on undefined params when true
+  parseExceptions: true,         // Post-process & rethrow API errors
+  keepAlive: false,              // HTTP keep-alive via axios
+});
+```
+
+<Note>
+  The demo trading environment is available **only** for `FuturesClientV2`. The same API credentials work in both production and demo environments — no separate keys are required.
+</Note>
+
+---
+
+## Market Data
+
+All market data endpoints are public and do not require authentication.
+
+### Contract Details
+
+`getFuturesContractDetails()` returns a list of all available futures contracts with trading rules, precision settings, current funding rates, open interest, and expiry information.
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+async function fetchContracts() {
+  try {
+    // All contracts
+    const all = await client.getFuturesContractDetails();
+    console.log('All contracts:', JSON.stringify(all.data.symbols, null, 2));
+
+    // Single contract
+    const btc = await client.getFuturesContractDetails({ symbol: 'BTCUSDT' });
+    console.log('BTCUSDT details:', JSON.stringify(btc.data.symbols[0], null, 2));
+  } catch (e) {
+    console.error('Error:', e);
+  }
+}
+
+fetchContracts();
+```
+
+### Order Book Depth
+
+`getFuturesContractDepth()` returns the current order book for a futures contract.
+
+```typescript
+const depth = await client.getFuturesContractDepth({ symbol: 'BTCUSDT' });
+console.log('Asks:', depth.data.asks);
+console.log('Bids:', depth.data.bids);
+```
+
+### Funding Rate
+
+`getFuturesFundingRate()` returns the current funding rate and the next funding time for a perpetual contract.
+
+```typescript
+const fundingRate = await client.getFuturesFundingRate({ symbol: 'BTCUSDT' });
+console.log('Funding rate:', fundingRate.data.rate);
+console.log('Next funding time:', fundingRate.data.funding_time);
+```
+
+Use `getFuturesFundingRateHistory()` to retrieve historical funding rate records:
+
+```typescript
+const history = await client.getFuturesFundingRateHistory({
+  symbol: 'BTCUSDT',
+  limit: '50',
+});
+console.log('Funding rate history:', JSON.stringify(history.data.list, null, 2));
+```
+
+### Klines (Candlesticks)
+
+`getFuturesKlines()` returns OHLCV candlestick data for a futures contract.
+
+```typescript
+const klines = await client.getFuturesKlines({
+  symbol: 'BTCUSDT',
+  step: 60,                                       // Interval in minutes
+  start_time: Math.floor(Date.now() / 1000) - 3600, // Unix seconds
+  end_time: Math.floor(Date.now() / 1000),
+});
+console.log('BTCUSDT klines:', JSON.stringify(klines.data, null, 2));
+```
+
+<Tip>
+  Use `getFuturesMarkPriceKlines()` for mark-price candles, which are used for liquidation calculations, and `getFuturesOpenInterest()` to monitor market participation.
+</Tip>
+
+---
+
+## Account
+
+All account endpoints are private and require API credentials.
+
+### Get Futures Account Assets
+
+`getFuturesAccountAssets()` returns the balance of all currencies in your futures account, including available, frozen, and equity amounts.
+
+<CodeGroup>
+```typescript TypeScript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function getFuturesBalances() {
+  try {
+    const balances = await client.getFuturesAccountAssets();
+    console.log('Futures balances:', JSON.stringify(balances, null, 2));
+  } catch (e) {
+    console.error('Error:', e);
+  }
+}
+
+getFuturesBalances();
+```
+```javascript JavaScript
+const { FuturesClientV2 } = require('bitmart-api');
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+});
+
+client
+  .getFuturesAccountAssets()
+  .then((balances) => console.log('Futures balances:', balances))
+  .catch((err) => console.error('Error:', err));
+```
+</CodeGroup>
+
+### Get Trade Fee Rate
+
+`getFuturesTradeFeeRate()` returns the maker and taker fee rates for a specific contract.
+
+```typescript
+const feeRate = await client.getFuturesTradeFeeRate({ symbol: 'BTCUSDT' });
+console.log('Maker fee:', feeRate.data.maker_fee_rate);
+console.log('Taker fee:', feeRate.data.taker_fee_rate);
+```
+
+---
+
+## Orders
+
+### Submit a Futures Order
+
+`submitFuturesOrder()` places a new futures order. The `side` parameter uses numeric codes:
+- `1` = buy open long
+- `2` = buy close short
+- `3` = sell close long
+- `4` = sell open short
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function placeOrder() {
+  try {
+    // Market order — open a long position
+    const marketOrder = await client.submitFuturesOrder({
+      symbol: 'BTCUSDT',
+      side: 1,            // 1=buy_open_long
+      type: 'market',
+      size: 1,            // Contract quantity
+      leverage: '10',
+      open_type: 'cross', // 'cross' | 'isolated'
+    });
+    console.log('Market order ID:', marketOrder.data.order_id);
+
+    // Limit order — open a short position
+    const limitOrder = await client.submitFuturesOrder({
+      symbol: 'BTCUSDT',
+      side: 4,            // 4=sell_open_short
+      type: 'limit',
+      size: 1,
+      price: '70000',
+      leverage: '5',
+      open_type: 'isolated',
+    });
+    console.log('Limit order ID:', limitOrder.data.order_id);
+  } catch (e) {
+    console.error('Order error:', e);
+  }
+}
+
+placeOrder();
+```
+
+### Cancel an Order
+
+`cancelFuturesOrder()` cancels a single open order by order ID.
+
+```typescript
+const cancelResult = await client.cancelFuturesOrder({
+  symbol: 'BTCUSDT',
+  order_id: '12345678',
+});
+console.log('Cancel result:', cancelResult);
+```
+
+### Cancel All Orders for a Symbol
+
+`cancelAllFuturesOrders()` cancels every open order for the specified contract.
+
+```typescript
+await client.cancelAllFuturesOrders({ symbol: 'BTCUSDT' });
+console.log('All BTCUSDT orders cancelled');
+```
+
+### Get Open Orders
+
+`getFuturesAccountOpenOrders()` retrieves all currently open orders, optionally filtered by symbol or order type.
+
+```typescript
+const openOrders = await client.getFuturesAccountOpenOrders({
+  symbol: 'BTCUSDT', // Optional — omit to get all open orders
+});
+console.log('Open orders:', JSON.stringify(openOrders.data, null, 2));
+```
+
+---
+
+## Positions
+
+### Get Account Positions
+
+`getFuturesAccountPositions()` returns all open positions, including unrealised PnL, margin, and liquidation price.
+
+```typescript
+// All positions
+const positions = await client.getFuturesAccountPositions();
+console.log('Positions:', JSON.stringify(positions.data, null, 2));
+
+// Positions for a specific contract
+const btcPosition = await client.getFuturesAccountPositions({ symbol: 'BTCUSDT' });
+console.log('BTC position:', JSON.stringify(btcPosition.data, null, 2));
+```
+
+### Set Leverage
+
+`setFuturesLeverage()` adjusts the leverage for a given contract and margin mode.
+
+```typescript
+const leverageResult = await client.setFuturesLeverage({
+  symbol: 'BTCUSDT',
+  leverage: '20',
+  open_type: 'cross', // 'cross' | 'isolated'
+});
+console.log('Leverage updated:', leverageResult.data);
+```
+
+### Set Position Mode
+
+`setPositionMode()` switches between one-way mode (net positions) and hedge mode (separate long/short positions).
+
+```typescript
+// Enable hedge mode
+const result = await client.setPositionMode({
+  position_mode: 'hedge_mode', // 'hedge_mode' | 'one_way_mode'
+});
+console.log('Position mode:', result.data.position_mode);
+
+// Check current mode
+const currentMode = await client.getPositionMode();
+console.log('Current mode:', currentMode.data.position_mode);
+```
+
+---
+
+## Plan & TP/SL Orders
+
+BitMart supports conditional order types for automated entry and exit strategies.
+
+### Submit a Plan Order (Trigger Order)
+
+`submitFuturesPlanOrder()` places an order that triggers when the market price reaches a specified `trigger_price`.
+
+```typescript
+const planOrder = await client.submitFuturesPlanOrder({
+  symbol: 'BTCUSDT',
+  side: 1,              // buy_open_long
+  type: 'limit',
+  leverage: '10',
+  open_type: 'cross',
+  size: 1,
+  trigger_price: '65000',    // Trigger at this market price
+  executive_price: '65100',  // Execute at this limit price
+  price_way: 1,              // 1=price_way_long, 2=price_way_short
+  price_type: 1,             // 1=last_price, 2=fair_price
+});
+console.log('Plan order ID:', planOrder.data.order_id);
+```
+
+### Submit a TP/SL Order
+
+`submitFuturesTPSLOrder()` attaches a take-profit or stop-loss to an existing position.
+
+```typescript
+// Take-profit order
+const tpOrder = await client.submitFuturesTPSLOrder({
+  symbol: 'BTCUSDT',
+  type: 'take_profit',
+  side: 3,                   // sell_close_long (close a long position)
+  trigger_price: '72000',
+  executive_price: '71900',
+  price_type: 1,             // 1=last_price, 2=fair_price
+});
+console.log('TP order ID:', tpOrder.data.order_id);
+
+// Stop-loss order
+const slOrder = await client.submitFuturesTPSLOrder({
+  symbol: 'BTCUSDT',
+  type: 'stop_loss',
+  side: 3,                   // sell_close_long
+  trigger_price: '58000',
+  executive_price: '57900',
+  price_type: 1,
+});
+console.log('SL order ID:', slOrder.data.order_id);
+```
+
+### Submit a Trailing Stop Order
+
+`submitFuturesTrailOrder()` places a trailing stop that moves with the market price, locking in profits as the price moves favourably.
+
+```typescript
+const trailOrder = await client.submitFuturesTrailOrder({
+  symbol: 'BTCUSDT',
+  side: 3,                      // sell_close_long
+  leverage: '10',
+  open_type: 'cross',
+  size: 1,
+  activation_price: '70000',    // Price at which trailing activates
+  callback_rate: '0.01',        // Trailing distance as a decimal (1% = 0.01)
+  activation_price_type: 1,     // 1=last_price, 2=fair_price
+});
+console.log('Trail order ID:', trailOrder.data.order_id);
+```
+
+---
+
+## Transfers
+
+### Move Assets Between Spot and Futures
+
+`submitFuturesTransfer()` transfers USDT between your spot wallet and your futures account.
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function transferAssets() {
+  try {
+    // Transfer from spot to futures
+    const toFutures = await client.submitFuturesTransfer({
+      currency: 'USDT',            // Only USDT is supported
+      amount: '100',               // Amount to transfer
+      type: 'spot_to_contract',
+    });
+    console.log('Transfer ID:', toFutures.data.transfer_id);
+
+    // Transfer from futures back to spot
+    const toSpot = await client.submitFuturesTransfer({
+      currency: 'USDT',
+      amount: '50',
+      type: 'contract_to_spot',
+    });
+    console.log('Transfer ID:', toSpot.data.transfer_id);
+  } catch (e) {
+    console.error('Transfer error:', e);
+  }
+}
+
+transferAssets();
+```
+
+---
+
+## Error Handling
+
+Wrap all calls in `try/catch` blocks. The SDK surfaces both HTTP-level and BitMart API-level errors as thrown exceptions.
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function safeOrderSubmit() {
+  try {
+    const order = await client.submitFuturesOrder({
+      symbol: 'BTCUSDT',
+      side: 1,
+      type: 'market',
+      size: 1,
+      leverage: '10',
+      open_type: 'cross',
+    });
+    console.log('Order placed:', order.data.order_id);
+  } catch (e: any) {
+    if (e.body) {
+      // BitMart API-level error (non-zero code in response body)
+      console.error('API error code:', e.body.code);
+      console.error('API error message:', e.body.message);
+    } else {
+      // Network or serialisation error
+      console.error('Unexpected error:', e.message);
+    }
+  }
+}
+
+safeOrderSubmit();
+```
+
+---
+
+## Method Reference
+
+<CardGroup cols={2}>
+  <Card title="Market Data" icon="chart-candlestick">
+    `getFuturesContractDetails`, `getFuturesContractDepth`, `getFuturesFundingRate`, `getFuturesFundingRateV2`, `getFuturesFundingRateHistory`, `getFuturesKlines`, `getFuturesMarkPriceKlines`, `getFuturesOpenInterest`, `getFuturesMarketTrade`, `getFuturesLeverageBracket`
+  </Card>
+  <Card title="Account" icon="wallet">
+    `getFuturesAccountAssets`, `getFuturesTradeFeeRate`, `getFuturesAccountOrder`, `getFuturesAccountOrderHistory`, `getFuturesAccountTrades`, `getFuturesAccountTransactionHistory`, `getPositionRiskDetails`
+  </Card>
+  <Card title="Orders" icon="arrow-right-arrow-left">
+    `submitFuturesOrder`, `updateFuturesLimitOrder`, `cancelFuturesOrder`, `cancelAllFuturesOrders`, `cancelAllFuturesOrdersAfter`, `getFuturesAccountOpenOrders`, `getFuturesAccountPlanOrders`
+  </Card>
+  <Card title="Positions" icon="layer-group">
+    `getFuturesAccountPositions`, `getFuturesAccountPositionsV2`, `setFuturesLeverage`, `setPositionMode`, `getPositionMode`
+  </Card>
+  <Card title="Plan & TP/SL Orders" icon="bullseye-arrow">
+    `submitFuturesPlanOrder`, `cancelFuturesPlanOrder`, `updateFuturesPlanOrder`, `submitFuturesTPSLOrder`, `updateFuturesTPSLOrder`, `submitFuturesTrailOrder`, `cancelFuturesTrailOrder`, `updateFuturesPresetPlanOrder`
+  </Card>
+  <Card title="Transfers" icon="arrows-left-right">
+    `submitFuturesTransfer`, `getFuturesTransfers`, `submitFuturesSubToMainTransferFromMain`, `submitFuturesMainToSubTransferFromMain`, `getFuturesSubWallet`, `getFuturesSubTransfers`
+  </Card>
+</CardGroup>

@@ -1,0 +1,332 @@
+---
+title: "Spot WebSocket Topics Reference: Streams & Events"
+sidebarTitle: "Spot Topics"
+description: "Complete reference for BitMart spot WebSocket topics: ticker, order book depth, kline/candlestick, trades, and private order and balance streams."
+---
+
+The BitMart SDK routes all spot WebSocket subscriptions through a single `WebsocketClient`. Public topics — tickers, depth, klines, and trades — connect automatically without credentials. Private topics (orders and balances) require your API key, secret, and memo and are authenticated at connection time. All spot topics use the `'spot'` market identifier in the `subscribe()` call, and data arrives on the `'update'` event.
+
+<Note>
+  The `WebsocketClient` automatically manages connection lifecycle: reconnections, heartbeats, and re-subscriptions after a disconnect are all handled transparently. You do not need to re-call `subscribe()` after a network interruption.
+</Note>
+
+---
+
+## Setup
+
+<Tabs>
+  <Tab title="Public (no credentials)">
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient();
+
+client.on('update', (data) => {
+  console.log('Received:', JSON.stringify(data));
+});
+
+client.on('response', (data) => {
+  // Subscription acknowledgement from the server
+  console.log('Response:', data);
+});
+
+client.on('exception', (data) => {
+  console.error('Exception:', data);
+});
+```
+  </Tab>
+  <Tab title="Private (with credentials)">
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+client.on('authenticated', (data) => {
+  console.log('Authenticated on', data?.wsKey);
+});
+
+client.on('update', (data) => {
+  console.log('Private update:', JSON.stringify(data));
+});
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Public Spot Topics
+
+Public topics stream live market data and require no authentication.
+
+### Topic Reference
+
+| Topic format | Description |
+|---|---|
+| `spot/ticker:{symbol}` | Real-time best bid/ask and 24 h statistics for a symbol |
+| `spot/depth5:{symbol}` | Order book snapshot — top 5 bid and ask levels |
+| `spot/depth20:{symbol}` | Order book snapshot — top 20 bid and ask levels |
+| `spot/depth50:{symbol}` | Order book snapshot — top 50 bid and ask levels |
+| `spot/kline1m:{symbol}` | 1-minute candlestick (OHLCV) |
+| `spot/kline3m:{symbol}` | 3-minute candlestick |
+| `spot/kline5m:{symbol}` | 5-minute candlestick |
+| `spot/kline15m:{symbol}` | 15-minute candlestick |
+| `spot/kline30m:{symbol}` | 30-minute candlestick |
+| `spot/kline1H:{symbol}` | 1-hour candlestick |
+| `spot/kline2H:{symbol}` | 2-hour candlestick |
+| `spot/kline4H:{symbol}` | 4-hour candlestick |
+| `spot/kline1D:{symbol}` | 1-day candlestick |
+| `spot/kline1W:{symbol}` | 1-week candlestick |
+| `spot/trade:{symbol}` | Real-time trade feed |
+
+<Tip>
+  The `{symbol}` placeholder uses the underscore format, e.g. `BTC_USDT`, `ETH_USDT`. This differs from the futures market, which uses no separator (e.g. `BTCUSDT`).
+</Tip>
+
+---
+
+### Ticker
+
+Subscribe to one or more ticker streams to receive real-time price and volume updates.
+
+<CodeGroup>
+```typescript Single Symbol
+client.subscribe('spot/ticker:BTC_USDT', 'spot');
+```
+
+```typescript Multiple Symbols
+client.subscribe(
+  [
+    'spot/ticker:BTC_USDT',
+    'spot/ticker:ETH_USDT',
+    'spot/ticker:XRP_USDT',
+    'spot/ticker:BMX_USDT',
+    'spot/ticker:SOL_USDT',
+  ],
+  'spot',
+);
+```
+</CodeGroup>
+
+---
+
+### Order Book Depth
+
+Choose the depth level that suits your use case — `depth5` is suitable for most simple strategies, while `depth50` gives a fuller picture of market liquidity.
+
+<CodeGroup>
+```typescript depth5
+client.subscribe('spot/depth5:BTC_USDT', 'spot');
+```
+
+```typescript depth20
+client.subscribe('spot/depth20:BTC_USDT', 'spot');
+```
+
+```typescript depth50
+client.subscribe('spot/depth50:BTC_USDT', 'spot');
+```
+</CodeGroup>
+
+---
+
+### Kline / Candlestick
+
+Subscribe to any of the available candlestick intervals. Multiple intervals can be batched into a single call.
+
+<CodeGroup>
+```typescript Single Interval
+// 1-minute candles for BTC/USDT
+client.subscribe('spot/kline1m:BTC_USDT', 'spot');
+```
+
+```typescript Multiple Intervals
+client.subscribe(
+  [
+    'spot/kline1m:BTC_USDT',
+    'spot/kline5m:BTC_USDT',
+    'spot/kline1H:BTC_USDT',
+    'spot/kline1D:BTC_USDT',
+  ],
+  'spot',
+);
+```
+</CodeGroup>
+
+**Available intervals**
+
+| Topic suffix | Interval |
+|---|---|
+| `kline1m` | 1 minute |
+| `kline3m` | 3 minutes |
+| `kline5m` | 5 minutes |
+| `kline15m` | 15 minutes |
+| `kline30m` | 30 minutes |
+| `kline1H` | 1 hour |
+| `kline2H` | 2 hours |
+| `kline4H` | 4 hours |
+| `kline1D` | 1 day |
+| `kline1W` | 1 week |
+
+---
+
+### Trades
+
+Receive a feed of executed trades for a symbol as they happen.
+
+```typescript
+client.subscribe('spot/trade:BTC_USDT', 'spot');
+```
+
+---
+
+## Private Spot Topics
+
+Private topics deliver account-specific events. The `WebsocketClient` automatically authenticates the private WebSocket connection when credentials are provided during instantiation — you do not need to call any login method manually.
+
+<Warning>
+  Private topics will silently fail to deliver data if the `WebsocketClient` was not instantiated with `apiKey`, `apiSecret`, and `apiMemo`. Check the `authenticated` event to confirm the connection is authenticated before assuming data will flow.
+</Warning>
+
+### Topic Reference
+
+| Topic format | Description |
+|---|---|
+| `spot/user/order:{symbol}` | Order placement, cancellation, and fill status updates |
+| `spot/user/balance:BALANCE_UPDATE` | Account balance changes |
+
+---
+
+### Order Updates
+
+Subscribe to order events for a specific trading pair.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+client.on('authenticated', (data) => {
+  console.log('Connection authenticated:', data?.wsKey);
+});
+
+client.on('update', (data) => {
+  // data.table indicates which topic sent this event
+  if (data.table === 'spot/user/order') {
+    console.log('Order update:', JSON.stringify(data.data));
+  }
+});
+
+// Subscribe to order updates for BTC_USDT
+client.subscribe('spot/user/order:BTC_USDT', 'spot');
+```
+
+---
+
+### Balance Updates
+
+Subscribe to real-time balance change notifications.
+
+```typescript
+// The balance topic uses the fixed string 'BALANCE_UPDATE' as the key
+client.subscribe('spot/user/balance:BALANCE_UPDATE', 'spot');
+```
+
+---
+
+## Handling the `update` Event
+
+All incoming WebSocket messages emit on the `'update'` event. The `data.table` field identifies which topic the message belongs to, allowing you to fan out events in a single handler.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+client.on('update', (data) => {
+  switch (data.table) {
+    case 'spot/ticker':
+      console.log('Ticker update:', data.data);
+      break;
+    case 'spot/depth5':
+      console.log('Depth update:', data.data);
+      break;
+    case 'spot/trade':
+      console.log('Trade update:', data.data);
+      break;
+    case 'spot/user/order':
+      console.log('Order update:', data.data);
+      break;
+    case 'spot/user/balance':
+      console.log('Balance update:', data.data);
+      break;
+    default:
+      console.log('Unknown topic:', data.table, data.data);
+  }
+});
+
+// Subscribe to a mix of public and private topics
+client.subscribe(
+  [
+    'spot/ticker:BTC_USDT',
+    'spot/depth5:BTC_USDT',
+    'spot/trade:BTC_USDT',
+  ],
+  'spot',
+);
+
+client.subscribe('spot/user/order:BTC_USDT', 'spot');
+client.subscribe('spot/user/balance:BALANCE_UPDATE', 'spot');
+```
+
+---
+
+## Unsubscribing
+
+Use `unsubscribe()` with the same topic strings and market to remove a subscription. The topic is removed from the internal cache and will not be re-subscribed after a reconnect.
+
+```typescript
+// Unsubscribe from a single topic
+client.unsubscribe('spot/ticker:BTC_USDT', 'spot');
+
+// Unsubscribe from multiple topics at once
+client.unsubscribe(
+  ['spot/kline1m:BTC_USDT', 'spot/depth5:BTC_USDT'],
+  'spot',
+);
+```
+
+---
+
+## Connection Events
+
+| Event | When it fires |
+|---|---|
+| `open` | WebSocket connection established |
+| `authenticated` | Private connection successfully authenticated |
+| `response` | Server acknowledgement of a subscribe/unsubscribe request |
+| `update` | Market data or account data received |
+| `reconnect` | Connection lost, attempting to reconnect |
+| `reconnected` | Reconnect successful (topics re-subscribed automatically) |
+| `close` | Connection closed |
+| `exception` | An error occurred |
+
+```typescript
+client.on('open', (data) => console.log('Connected:', data?.wsKey));
+client.on('authenticated', (data) => console.log('Authenticated:', data?.wsKey));
+client.on('reconnect', (data) => console.log('Reconnecting...', data));
+client.on('reconnected', (data) => console.log('Reconnected:', data));
+client.on('close', (data) => console.error('Closed:', data));
+client.on('exception', (data) => console.error('Error:', data));
+```

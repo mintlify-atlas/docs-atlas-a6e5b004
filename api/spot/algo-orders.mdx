@@ -1,0 +1,687 @@
+---
+title: "Spot Algo & Advanced Order REST API Reference"
+sidebarTitle: "Algo Orders"
+description: "Place and manage BitMart spot algo orders — trigger and TP/SL order types — plus broker rebate queries, using the Node.js/TypeScript SDK."
+---
+
+BitMart's spot algo order system lets you automate conditional execution without running your own monitoring loop. Two algo order types are supported: **trigger orders** (execute a market or limit order when a price condition is met) and **TP/SL orders** (take-profit / stop-loss pairs). All algo endpoints use the V4 API and require full authentication. This page also covers the `getBrokerRebate` method for API broker integrations.
+
+## Setup
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: 'YOUR_API_KEY',
+  apiSecret: 'YOUR_API_SECRET',
+  apiMemo: 'YOUR_API_MEMO',
+});
+```
+
+<Note>
+  All methods on this page require a valid API key with **trade permissions** enabled.
+</Note>
+
+---
+
+## Algo Order Types
+
+<Tabs>
+  <Tab title="Trigger Order">
+    A **trigger order** monitors the market and submits a new limit or market order once the spot price crosses a specified `trigger_price`.
+
+    **Use case:** "Buy 0.1 BTC with a market order if the price drops to 45,000 USDT."
+
+    Key fields:
+    - `type: "trigger"`
+    - `trigger_price` — the price level to watch
+    - `trigger_type` — `"limit"` (trigger at exact price) or `"market"` (trigger at market price)
+    - `price` — the execution price for a limit trigger order
+    - `size` or `notional` — order quantity
+  </Tab>
+  <Tab title="TP/SL Order">
+    A **TP/SL order** is a take-profit / stop-loss conditional order that triggers when the asset price hits the specified threshold.
+
+    **Use case:** "Sell 0.1 BTC at market if the price reaches 65,000 (take profit) or falls to 40,000 (stop loss)."
+
+    Key fields:
+    - `type: "tp/sl"`
+    - `trigger_price` — the TP or SL activation price
+    - `trigger_type` — `"limit"` or `"market"`
+    - `price` — limit execution price (for limit trigger type)
+    - `size` or `notional` — quantity
+  </Tab>
+</Tabs>
+
+---
+
+## Placing Algo Orders
+
+### `submitSpotAlgoOrderV4(params)`
+
+Submits a new spot algo order (trigger or TP/SL).
+
+```typescript
+submitSpotAlgoOrderV4(params: SubmitSpotAlgoOrderV4Request): Promise<APIResponse<{ order_id: string }>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Trading pair, e.g. `"BTC_USDT"`.
+</ParamField>
+
+<ParamField body="side" type="string" required>
+  `"buy"` or `"sell"`.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  Algo order type: `"trigger"` or `"tp/sl"`.
+</ParamField>
+
+<ParamField body="trigger_price" type="string">
+  The price at which the algo order activates. Required for trigger and TP/SL orders.
+</ParamField>
+
+<ParamField body="trigger_type" type="string">
+  Execution type when triggered: `"limit"` (execute at `price`) or `"market"` (execute at best market price).
+</ParamField>
+
+<ParamField body="price" type="string">
+  Execution limit price. Required when `trigger_type` is `"limit"`.
+</ParamField>
+
+<ParamField body="size" type="string">
+  Order quantity in base asset units. Use for sell orders and limit-triggered buy orders.
+</ParamField>
+
+<ParamField body="notional" type="string">
+  Quote currency amount. Used for market-triggered buy orders (e.g. spend `"200"` USDT).
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  Optional user-defined order ID (max 32 characters, must be unique per account).
+</ParamField>
+
+<CodeGroup>
+```typescript Trigger Buy — Market Execution
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Buy 0.01 BTC at market price when BTC drops to 45,000 USDT
+const response = await client.submitSpotAlgoOrderV4({
+  symbol: 'BTC_USDT',
+  side: 'buy',
+  type: 'trigger',
+  trigger_price: '45000',
+  trigger_type: 'market',
+  size: '0.01',
+  client_order_id: `trigger-buy-${Date.now()}`,
+});
+
+console.log('Trigger order placed! ID:', response.data.order_id);
+```
+
+```typescript Trigger Sell — Limit Execution
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// When BTC reaches 65,000, place a limit sell order at 64,800
+const response = await client.submitSpotAlgoOrderV4({
+  symbol: 'BTC_USDT',
+  side: 'sell',
+  type: 'trigger',
+  trigger_price: '65000',
+  trigger_type: 'limit',
+  price: '64800',
+  size: '0.01',
+  client_order_id: `trigger-sell-${Date.now()}`,
+});
+
+console.log('Limit trigger sell order placed! ID:', response.data.order_id);
+```
+
+```typescript Take Profit / Stop Loss Order
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Take profit: sell 0.01 BTC at market when price hits 70,000
+const takeProfitResponse = await client.submitSpotAlgoOrderV4({
+  symbol: 'BTC_USDT',
+  side: 'sell',
+  type: 'tp/sl',
+  trigger_price: '70000',
+  trigger_type: 'market',
+  size: '0.01',
+  client_order_id: `tp-${Date.now()}`,
+});
+console.log('Take profit order placed! ID:', takeProfitResponse.data.order_id);
+
+// Stop loss: sell 0.01 BTC at market when price falls to 42,000
+const stopLossResponse = await client.submitSpotAlgoOrderV4({
+  symbol: 'BTC_USDT',
+  side: 'sell',
+  type: 'tp/sl',
+  trigger_price: '42000',
+  trigger_type: 'market',
+  size: '0.01',
+  client_order_id: `sl-${Date.now()}`,
+});
+console.log('Stop loss order placed! ID:', stopLossResponse.data.order_id);
+```
+</CodeGroup>
+
+---
+
+## Cancelling Algo Orders
+
+### `cancelSpotAlgoOrderV4(params)`
+
+Cancels a single open algo order by its order ID.
+
+```typescript
+cancelSpotAlgoOrderV4(params: CancelSpotAlgoOrderV4Request): Promise<APIResponse<{ result: boolean }>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Trading pair of the algo order.
+</ParamField>
+
+<ParamField body="order_id" type="string" required>
+  The exchange-assigned algo order ID to cancel.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  The algo order type: `"tp/sl"` or `"trigger"`. Must match the type used at submission.
+</ParamField>
+
+<CodeGroup>
+```typescript Cancel Algo Order
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.cancelSpotAlgoOrderV4({
+  symbol: 'BTC_USDT',
+  order_id: '987654321',
+  type: 'trigger',
+});
+
+console.log('Cancel result:', response.data.result);
+```
+</CodeGroup>
+
+---
+
+### `cancelAllSpotAlgoOrdersV4(params)`
+
+Cancels all open algo orders of a specific type, optionally filtered to one symbol.
+
+```typescript
+cancelAllSpotAlgoOrdersV4(params: CancelAllSpotAlgoOrdersV4Request): Promise<APIResponse<{}>>
+```
+
+<ParamField body="type" type="string" required>
+  Algo type to cancel: `"tp/sl"` or `"trigger"`.
+</ParamField>
+
+<ParamField body="symbol" type="string">
+  Optional. Cancel only algo orders for this trading pair. If omitted, cancels all symbols.
+</ParamField>
+
+<CodeGroup>
+```typescript Cancel All Trigger Orders
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Cancel all open trigger orders on BTC_USDT
+await client.cancelAllSpotAlgoOrdersV4({
+  symbol: 'BTC_USDT',
+  type: 'trigger',
+});
+
+console.log('All BTC_USDT trigger orders cancelled');
+```
+
+```typescript Cancel All TP/SL Orders (All Symbols)
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Cancel ALL open TP/SL orders across every symbol
+await client.cancelAllSpotAlgoOrdersV4({
+  type: 'tp/sl',
+});
+
+console.log('All TP/SL orders cancelled');
+```
+</CodeGroup>
+
+---
+
+## Querying Algo Orders
+
+### `getSpotAlgoOrderByIdV4(params)`
+
+Returns the details of a single algo order by its exchange order ID.
+
+```typescript
+getSpotAlgoOrderByIdV4(params: SpotAlgoOrderByIdV4Request): Promise<APIResponse<SpotAlgoOrderV4>>
+```
+
+<ParamField body="orderId" type="string" required>
+  The exchange-assigned algo order ID.
+</ParamField>
+
+<ParamField body="queryState" type="string">
+  Hint to speed up the lookup: `"open"` or `"history"`.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds.
+</ParamField>
+
+**Response — `SpotAlgoOrderV4` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `orderId` | `string` | Exchange algo order ID |
+| `clientOrderId` | `string` | Client-assigned ID |
+| `symbol` | `string` | Trading pair |
+| `side` | `string` | `"buy"` or `"sell"` |
+| `orderMode` | `string` | Order mode identifier |
+| `trigger_type` | `string` | `"limit"` or `"market"` |
+| `state` | `string` | Current state (e.g. `"active"`, `"triggered"`, `"cancelled"`) |
+| `cancelSource` | `string` | Reason for cancellation (if applicable) |
+| `price` | `string` | Execution price (for limit triggers) |
+| `size` | `string` | Order size |
+| `notional` | `string` | Quote amount (for notional-based orders) |
+| `createTime` | `number` | Creation timestamp (ms) |
+| `updateTime` | `number` | Last update timestamp (ms) |
+
+<CodeGroup>
+```typescript Get Algo Order by ID
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotAlgoOrderByIdV4({
+  orderId: '987654321',
+  queryState: 'open',
+});
+
+const order = response.data;
+console.log(`Algo Order ${order.orderId}`);
+console.log(`  Symbol: ${order.symbol}`);
+console.log(`  Side: ${order.side}`);
+console.log(`  State: ${order.state}`);
+console.log(`  Trigger type: ${order.trigger_type}`);
+console.log(`  Size: ${order.size}`);
+```
+</CodeGroup>
+
+---
+
+### `getSpotAlgoOrderByClientOrderIdV4(params)`
+
+Retrieves an algo order using the client-assigned order ID provided at submission.
+
+```typescript
+getSpotAlgoOrderByClientOrderIdV4(params: SpotAlgoOrderByClientOrderIdV4Request): Promise<APIResponse<SpotAlgoOrderV4>>
+```
+
+<ParamField body="clientOrderId" type="string" required>
+  The client-assigned order ID.
+</ParamField>
+
+<ParamField body="queryState" type="string">
+  Optional: `"open"` or `"history"`.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds.
+</ParamField>
+
+<CodeGroup>
+```typescript Get Algo Order by Client Order ID
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotAlgoOrderByClientOrderIdV4({
+  clientOrderId: 'trigger-buy-1703001234567',
+});
+
+console.log('State:', response.data.state);
+console.log('Trigger type:', response.data.trigger_type);
+```
+</CodeGroup>
+
+---
+
+### `getSpotAlgoOpenOrdersV4(params?)`
+
+Returns all currently active (open) algo orders.
+
+```typescript
+getSpotAlgoOpenOrdersV4(params?: SpotAlgoOpenOrdersV4Request): Promise<APIResponse<SpotAlgoOrderV4[]>>
+```
+
+<ParamField body="symbol" type="string">
+  Optional. Filter to a specific trading pair.
+</ParamField>
+
+<ParamField body="orderMode" type="string">
+  Filter by algo type: `"trigger"` or `"tp/sl"`.
+</ParamField>
+
+<ParamField body="startTime" type="number">
+  Filter by creation time start (ms).
+</ParamField>
+
+<ParamField body="endTime" type="number">
+  Filter by creation time end (ms).
+</ParamField>
+
+<ParamField body="limit" type="number">
+  Number of results, range `[1, 200]`, default `200`.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds.
+</ParamField>
+
+<CodeGroup>
+```typescript Get All Open Algo Orders
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotAlgoOpenOrdersV4();
+console.log(`Open algo orders: ${response.data.length}`);
+
+for (const order of response.data) {
+  console.log(
+    `[${order.symbol}] ${order.side} ${order.size} | ` +
+    `state: ${order.state} | trigger: ${order.trigger_type}`
+  );
+}
+```
+
+```typescript Get Open Trigger Orders for Symbol
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotAlgoOpenOrdersV4({
+  symbol: 'BTC_USDT',
+  orderMode: 'trigger',
+});
+
+console.log(`BTC_USDT open trigger orders: ${response.data.length}`);
+```
+</CodeGroup>
+
+---
+
+### `getSpotAlgoHistoryOrdersV4(params?)`
+
+Returns historical algo orders (triggered, cancelled, expired).
+
+```typescript
+getSpotAlgoHistoryOrdersV4(params?: SpotAlgoHistoryOrdersV4Request): Promise<APIResponse<SpotAlgoOrderV4[]>>
+```
+
+<ParamField body="symbol" type="string">
+  Optional. Filter by trading pair.
+</ParamField>
+
+<ParamField body="orderMode" type="string">
+  `"trigger"` or `"tp/sl"`.
+</ParamField>
+
+<ParamField body="startTime" type="number">
+  Start of time range (ms).
+</ParamField>
+
+<ParamField body="endTime" type="number">
+  End of time range (ms).
+</ParamField>
+
+<ParamField body="limit" type="number">
+  Number of results, range `[1, 200]`, default `200`.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds.
+</ParamField>
+
+<CodeGroup>
+```typescript Get Algo Order History
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+const response = await client.getSpotAlgoHistoryOrdersV4({
+  symbol: 'BTC_USDT',
+  startTime: oneWeekAgo,
+  limit: 50,
+});
+
+for (const order of response.data) {
+  console.log(
+    `[${new Date(order.createTime).toISOString()}] ${order.side} ${order.size} — ${order.state}`
+  );
+}
+```
+</CodeGroup>
+
+---
+
+## Broker Rebate
+
+### `getBrokerRebate(params?)`
+
+Returns rebate records for API broker accounts. Only applicable if your API key is associated with a registered BitMart broker program.
+
+```typescript
+getBrokerRebate(params?: SpotBrokerRebateRequest): Promise<APIResponse<SpotBrokerRebateResult>>
+```
+
+<ParamField query="start_time" type="number">
+  Optional. Start of the query range as a Unix timestamp in seconds.
+</ParamField>
+
+<ParamField query="end_time" type="number">
+  Optional. End of the query range as a Unix timestamp in seconds.
+</ParamField>
+
+**Response — `SpotBrokerRebateResult` structure:**
+
+```typescript
+interface SpotBrokerRebateResult {
+  rebates: {
+    [date: string]: SpotBrokerRebateRow[];
+  };
+}
+
+interface SpotBrokerRebateRow {
+  currency: string;       // Currency of the rebate
+  rebate_amount: string;  // Rebate amount for that day
+}
+```
+
+<Note>
+  This endpoint is only available to accounts enrolled in the BitMart broker program. Standard API keys will receive an authorization error.
+</Note>
+
+<CodeGroup>
+```typescript Get Broker Rebates
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const now = Math.floor(Date.now() / 1000);
+const thirtyDaysAgo = now - 30 * 24 * 60 * 60;
+
+const response = await client.getBrokerRebate({
+  start_time: thirtyDaysAgo,
+  end_time: now,
+});
+
+const { rebates } = response.data;
+for (const [date, rows] of Object.entries(rebates)) {
+  for (const row of rows) {
+    console.log(`${date}: ${row.rebate_amount} ${row.currency}`);
+  }
+}
+```
+
+```typescript Get All-Time Rebates
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// No time filter — returns all available rebate history
+const response = await client.getBrokerRebate();
+
+let totalUsdt = 0;
+for (const [date, rows] of Object.entries(response.data.rebates)) {
+  for (const row of rows) {
+    if (row.currency === 'USDT') {
+      totalUsdt += parseFloat(row.rebate_amount);
+    }
+  }
+}
+console.log(`Total USDT rebates: ${totalUsdt.toFixed(4)}`);
+```
+</CodeGroup>
+
+---
+
+## Complete Algo Order Lifecycle Example
+
+This example shows how to submit a trigger order, monitor it until it activates or times out, and cancel it if needed.
+
+<CodeGroup>
+```typescript Algo Order Lifecycle
+import { RestClient } from 'bitmart-api';
+
+async function algoOrderLifecycle() {
+  const client = new RestClient({
+    apiKey: process.env.API_KEY!,
+    apiSecret: process.env.API_SECRET!,
+    apiMemo: process.env.API_MEMO!,
+  });
+
+  const clientOrderId = `algo-${Date.now()}`;
+
+  // Step 1: Place a trigger buy order
+  console.log('Placing trigger buy order...');
+  const submitResponse = await client.submitSpotAlgoOrderV4({
+    symbol: 'BTC_USDT',
+    side: 'buy',
+    type: 'trigger',
+    trigger_price: '45000',
+    trigger_type: 'market',
+    size: '0.001',
+    client_order_id: clientOrderId,
+  });
+
+  const orderId = submitResponse.data.order_id;
+  console.log(`Algo order placed: ${orderId}`);
+
+  // Step 2: Verify it's active
+  const orderDetail = await client.getSpotAlgoOrderByClientOrderIdV4({
+    clientOrderId,
+    queryState: 'open',
+  });
+  console.log(`Current state: ${orderDetail.data.state}`);
+
+  // Step 3: List all open trigger orders
+  const openOrders = await client.getSpotAlgoOpenOrdersV4({
+    symbol: 'BTC_USDT',
+    orderMode: 'trigger',
+  });
+  console.log(`Open trigger orders on BTC_USDT: ${openOrders.data.length}`);
+
+  // Step 4: Cancel if the trigger condition is no longer relevant
+  const cancelResponse = await client.cancelSpotAlgoOrderV4({
+    symbol: 'BTC_USDT',
+    order_id: orderId,
+    type: 'trigger',
+  });
+  console.log(`Cancelled: ${cancelResponse.data.result}`);
+
+  // Step 5: Confirm it appears in history
+  const history = await client.getSpotAlgoHistoryOrdersV4({
+    symbol: 'BTC_USDT',
+    limit: 5,
+  });
+  const cancelled = history.data.find((o) => o.orderId === orderId);
+  console.log(`Final state in history: ${cancelled?.state ?? 'not found yet'}`);
+}
+
+await algoOrderLifecycle();
+```
+</CodeGroup>
+
+<Tip>
+  Always persist the `order_id` returned by `submitSpotAlgoOrderV4` immediately. If your process restarts, you can recover the order via `getSpotAlgoOrderByClientOrderIdV4` using the `client_order_id` you supplied at creation.
+</Tip>

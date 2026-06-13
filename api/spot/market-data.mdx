@@ -1,0 +1,599 @@
+---
+title: "Spot Market Data REST API Reference"
+sidebarTitle: "Market Data"
+description: "Access BitMart spot market data: tickers, order book depth, klines, recent trades, currencies, and trading pair details via the Node.js SDK."
+---
+
+The BitMart spot market data endpoints are all public — no API key is required. Use them to retrieve real-time price quotes, candlestick (kline) history, order book snapshots, recent trades, and the full list of supported currencies and trading pairs. All methods are available on the `RestClient` class from the `bitmart-api` package and return typed `Promise` responses.
+
+## Installation & Setup
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+// No credentials needed for public market data endpoints
+```
+
+---
+
+## System Endpoints
+
+### `getSystemTime()`
+
+Returns the current server time in milliseconds. Useful for clock-sync checks and diagnosing timestamp errors.
+
+```typescript
+getSystemTime(): Promise<APIResponse<{ server_time: number }>>
+```
+
+<CodeGroup>
+```typescript Get Server Time
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSystemTime();
+console.log('Server time (ms):', response.data.server_time);
+```
+</CodeGroup>
+
+---
+
+### `getSystemStatus()`
+
+Returns the operational status of all BitMart services. Check this endpoint before trading to detect scheduled maintenance windows.
+
+```typescript
+getSystemStatus(): Promise<APIResponse<{ service: ServiceStatus[] }>>
+```
+
+**Response — `ServiceStatus` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string` | Service name |
+| `service_type` | `string` | Type identifier |
+| `status` | `number` | `0` = normal, `1` = maintenance |
+| `start_time` | `number` | Maintenance start (ms) |
+| `end_time` | `number` | Maintenance end (ms) |
+
+<CodeGroup>
+```typescript Check System Status
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSystemStatus();
+for (const svc of response.data.service) {
+  const state = svc.status === 0 ? '✅ Normal' : '🔧 Maintenance';
+  console.log(`${svc.title}: ${state}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Currencies & Trading Pairs
+
+### `getSpotCurrenciesV1()`
+
+Returns all currencies supported on BitMart spot, including their deposit and withdrawal availability.
+
+```typescript
+getSpotCurrenciesV1(): Promise<APIResponse<{ currencies: SpotCurrencyV1[] }>>
+```
+
+**Response — `SpotCurrencyV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Currency ID (e.g. `"BTC"`) |
+| `name` | `string` | Full currency name |
+| `withdraw_enabled` | `boolean` | Whether withdrawal is enabled |
+| `deposit_enabled` | `boolean` | Whether deposit is enabled |
+
+<CodeGroup>
+```typescript List Spot Currencies
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotCurrenciesV1();
+const active = response.data.currencies.filter(
+  (c) => c.deposit_enabled && c.withdraw_enabled,
+);
+console.log(`Active currencies: ${active.length}`);
+console.log(active.slice(0, 3));
+```
+</CodeGroup>
+
+---
+
+### `getSpotTradingPairsV1()`
+
+Returns a flat list of all active spot trading pair symbols (e.g. `["BTC_USDT", "ETH_USDT", ...]`).
+
+```typescript
+getSpotTradingPairsV1(): Promise<APIResponse<{ symbols: string[] }>>
+```
+
+<CodeGroup>
+```typescript List Trading Pair Symbols
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotTradingPairsV1();
+console.log('Total pairs:', response.data.symbols.length);
+console.log('First 5:', response.data.symbols.slice(0, 5));
+```
+</CodeGroup>
+
+---
+
+### `getSpotTradingPairDetailsV1()`
+
+Returns full details for all spot trading pairs including precision rules, minimum order sizes, and quote increments.
+
+```typescript
+getSpotTradingPairDetailsV1(): Promise<APIResponse<{ symbols: SpotTradingPairDetailsV1[] }>>
+```
+
+**Response — `SpotTradingPairDetailsV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `symbol` | `string` | Trading pair symbol |
+| `base_currency` | `string` | Base asset (e.g. `"BTC"`) |
+| `quote_currency` | `string` | Quote asset (e.g. `"USDT"`) |
+| `quote_increment` | `string` | Minimum price increment |
+| `base_min_size` | `string` | Minimum base order size |
+| `base_max_size` | `string` | Maximum base order size |
+| `price_min_precision` | `number` | Minimum price decimal places |
+| `price_max_precision` | `number` | Maximum price decimal places |
+| `min_buy_amount` | `string` | Minimum buy quote value |
+| `min_sell_amount` | `string` | Minimum sell base value |
+
+<CodeGroup>
+```typescript Get Pair Details
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotTradingPairDetailsV1();
+const btcUsdt = response.data.symbols.find((s) => s.symbol === 'BTC_USDT');
+
+if (btcUsdt) {
+  console.log('BTC_USDT min buy amount:', btcUsdt.min_buy_amount);
+  console.log('Price precision:', btcUsdt.price_max_precision);
+}
+```
+</CodeGroup>
+
+---
+
+## Tickers (V3 — Current)
+
+### `getSpotTickersV3()`
+
+Returns all spot tickers in compact array format. Each element is a fixed-position tuple.
+
+```typescript
+getSpotTickersV3(): Promise<APIResponse<ArrayFormSpotTickerV3[]>>
+```
+
+**`ArrayFormSpotTickerV3` tuple positions:**
+
+| Index | Field | Description |
+|---|---|---|
+| `[0]` | `symbol` | Trading pair |
+| `[1]` | `last` | Last traded price |
+| `[2]` | `v_24h` | 24h base volume |
+| `[3]` | `qv_24h` | 24h quote volume |
+| `[4]` | `open_24h` | 24h open price |
+| `[5]` | `high_24h` | 24h high price |
+| `[6]` | `low_24h` | 24h low price |
+| `[7]` | `fluctuation` | 24h price change % |
+| `[8]` | `bid_px` | Best bid price |
+| `[9]` | `bid_sz` | Best bid size |
+| `[10]` | `ask_px` | Best ask price |
+| `[11]` | `ask_sz` | Best ask size |
+| `[12]` | `ts` | Timestamp (ms) |
+
+<CodeGroup>
+```typescript Fetch All Tickers
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotTickersV3();
+// Destructure the array format
+const [symbol, last, v24h, , , high24h, low24h] = response.data[0];
+console.log(`${symbol}: last=${last}, high=${high24h}, low=${low24h}`);
+```
+</CodeGroup>
+
+---
+
+### `getSpotTickerV3(params?)`
+
+Returns the full ticker object for a single trading pair. When called without params, returns the first available ticker.
+
+```typescript
+getSpotTickerV3(params?: { symbol: string }): Promise<APIResponse<SpotTickerV3>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `BTC_USDT`.
+</ParamField>
+
+<CodeGroup>
+```typescript Get Single Ticker
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotTickerV3({ symbol: 'BTC_USDT' });
+const ticker = response.data;
+
+console.log(`BTC_USDT`);
+console.log(`  Last:       ${ticker.last}`);
+console.log(`  24h High:   ${ticker.high_24h}`);
+console.log(`  24h Low:    ${ticker.low_24h}`);
+console.log(`  24h Change: ${ticker.fluctuation}`);
+console.log(`  Best Bid:   ${ticker.bid_px} (${ticker.bid_sz})`);
+console.log(`  Best Ask:   ${ticker.ask_px} (${ticker.ask_sz})`);
+```
+</CodeGroup>
+
+---
+
+## Kline / Candlestick Data
+
+### `getSpotLatestKlineV3(params)`
+
+Returns the most recent klines (candlesticks) for a symbol, ordered newest-first.
+
+```typescript
+getSpotLatestKlineV3(params: SpotKlineV3Request): Promise<APIResponse<ArrayFormSpotKlineV3[]>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `BTC_USDT`.
+</ParamField>
+
+<ParamField query="before" type="number">
+  Query klines with timestamp **before** this value (ms). Used for pagination.
+</ParamField>
+
+<ParamField query="after" type="number">
+  Query klines with timestamp **after** this value (ms).
+</ParamField>
+
+<ParamField query="step" type="number">
+  Kline interval in minutes. Common values: `1`, `3`, `5`, `15`, `30`, `60`, `240`, `1440`, `10080`, `43200`.
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Number of klines to return. Default `100`, max `200`.
+</ParamField>
+
+**`ArrayFormSpotKlineV3` tuple positions — `[t, o, h, l, c, v, qv]`:**
+
+| Index | Field | Description |
+|---|---|---|
+| `[0]` | `t` | Open timestamp (ms) |
+| `[1]` | `o` | Open price |
+| `[2]` | `h` | High price |
+| `[3]` | `l` | Low price |
+| `[4]` | `c` | Close price |
+| `[5]` | `v` | Base volume |
+| `[6]` | `qv` | Quote volume |
+
+<CodeGroup>
+```typescript Latest Klines
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+// Fetch last 50 one-hour candles for BTC_USDT
+const response = await client.getSpotLatestKlineV3({
+  symbol: 'BTC_USDT',
+  step: 60,
+  limit: 50,
+});
+
+for (const [t, o, h, l, c, v] of response.data) {
+  console.log(`Open: ${o}  High: ${h}  Low: ${l}  Close: ${c}  Vol: ${v}`);
+}
+```
+</CodeGroup>
+
+---
+
+### `getSpotHistoryKlineV3(params)`
+
+Returns historical kline data within a time window. Accepts the same `SpotKlineV3Request` parameters as `getSpotLatestKlineV3`.
+
+```typescript
+getSpotHistoryKlineV3(params: SpotKlineV3Request): Promise<APIResponse<ArrayFormSpotKlineV3[]>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `ETH_USDT`.
+</ParamField>
+
+<ParamField query="before" type="number">
+  Fetch klines with timestamp before this Unix ms value.
+</ParamField>
+
+<ParamField query="after" type="number">
+  Fetch klines with timestamp after this Unix ms value.
+</ParamField>
+
+<ParamField query="step" type="number">
+  Kline interval in minutes (default `1`).
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Number of results (default `100`, max `200`).
+</ParamField>
+
+<CodeGroup>
+```typescript Historical Klines with Time Range
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+const response = await client.getSpotHistoryKlineV3({
+  symbol: 'ETH_USDT',
+  step: 60,       // 1-hour candles
+  after: oneDayAgo,
+  limit: 24,
+});
+
+console.log(`Fetched ${response.data.length} hourly candles`);
+const latest = response.data[0];
+console.log(`Most recent close: ${latest[4]}`);
+```
+</CodeGroup>
+
+---
+
+## Order Book
+
+### `getSpotOrderBookDepthV3(params)`
+
+Returns the current order book (bids and asks) for a trading pair.
+
+```typescript
+getSpotOrderBookDepthV3(params: {
+  symbol: string;
+  limit?: number;
+}): Promise<APIResponse<SpotOrderBookDepthResultV3>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `BTC_USDT`.
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Number of price levels per side. Max `50`.
+</ParamField>
+
+**Response — `SpotOrderBookDepthResultV3`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `ts` | `string` | Snapshot timestamp (ms) |
+| `symbol` | `string` | Trading pair |
+| `asks` | `[string, string][]` | Ask levels: `[price, amount]` |
+| `bids` | `[string, string][]` | Bid levels: `[price, amount]` |
+
+<CodeGroup>
+```typescript Fetch Order Book
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotOrderBookDepthV3({
+  symbol: 'BTC_USDT',
+  limit: 10,
+});
+
+const { bids, asks, ts } = response.data;
+console.log(`Order book snapshot at ${ts}`);
+console.log('Top bid:', bids[0][0], '×', bids[0][1]);
+console.log('Top ask:', asks[0][0], '×', asks[0][1]);
+console.log('Spread:', (parseFloat(asks[0][0]) - parseFloat(bids[0][0])).toFixed(2));
+```
+</CodeGroup>
+
+---
+
+## Recent Trades
+
+### `getSpotRecentTrades(params)`
+
+Returns the most recent public trades for a symbol in compact array format.
+
+```typescript
+getSpotRecentTrades(params: {
+  symbol: string;
+  limit?: number;
+}): Promise<APIResponse<ArrayFormSpotRecentTrade[]>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `BTC_USDT`.
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Number of trades to return. Max `50`.
+</ParamField>
+
+**`ArrayFormSpotRecentTrade` tuple positions — `[symbol, ts, price, size, side]`:**
+
+| Index | Field | Type | Description |
+|---|---|---|---|
+| `[0]` | `symbol` | `string` | Trading pair |
+| `[1]` | `ts` | `string` | Trade timestamp (ms) |
+| `[2]` | `price` | `string` | Execution price |
+| `[3]` | `size` | `string` | Trade size (base asset) |
+| `[4]` | `side` | `'buy' \| 'sell'` | Taker side |
+
+<CodeGroup>
+```typescript Recent Trades
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotRecentTrades({
+  symbol: 'BTC_USDT',
+  limit: 20,
+});
+
+for (const [symbol, ts, price, size, side] of response.data) {
+  const arrow = side === 'buy' ? '▲' : '▼';
+  console.log(`${arrow} ${side.toUpperCase()} ${size} BTC @ ${price} USDT`);
+}
+```
+</CodeGroup>
+
+---
+
+## Legacy Endpoints (V1 / V2)
+
+<Warning>
+  The following endpoints are marked `@deprecated` in the SDK. Use V3 equivalents (`getSpotTickersV3`, `getSpotLatestKlineV3`, etc.) for new integrations.
+</Warning>
+
+### `getSpotTickersV2()`
+
+Returns all spot tickers in the legacy V2 format using the `SpotTickerV1` object structure.
+
+```typescript
+getSpotTickersV2(): Promise<APIResponse<{ tickers: SpotTickerV1[] }>>
+```
+
+<CodeGroup>
+```typescript Legacy V2 Tickers
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotTickersV2();
+const btc = response.data.tickers.find((t) => t.symbol === 'BTC_USDT');
+console.log('BTC last price:', btc?.last_price);
+```
+</CodeGroup>
+
+---
+
+### `getSpotTickerV1(params)`
+
+Returns a single ticker in V1 format.
+
+```typescript
+getSpotTickerV1(params: { symbol: string }): Promise<APIResponse<SpotTickerV1>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `BTC_USDT`.
+</ParamField>
+
+<CodeGroup>
+```typescript Legacy V1 Single Ticker
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getSpotTickerV1({ symbol: 'BTC_USDT' });
+console.log('Last price:', response.data.last_price);
+console.log('Best ask:', response.data.best_ask);
+console.log('Best bid:', response.data.best_bid);
+```
+</CodeGroup>
+
+---
+
+### `getSpotKlinesV1(params)`
+
+Returns historical kline data in V1 object format. Requires explicit `from` / `to` UNIX timestamps.
+
+```typescript
+getSpotKlinesV1(params: SpotKlinesV1Request): Promise<APIResponse<{ klines: SpotKlineV1[] }>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `BTC_USDT`.
+</ParamField>
+
+<ParamField query="from" type="number" required>
+  Start time as a UNIX timestamp in seconds.
+</ParamField>
+
+<ParamField query="to" type="number" required>
+  End time as a UNIX timestamp in seconds.
+</ParamField>
+
+<ParamField query="step" type="number">
+  Kline interval in minutes (default `1`).
+</ParamField>
+
+<CodeGroup>
+```typescript Legacy V1 Klines
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const now = Math.floor(Date.now() / 1000);
+const oneDayAgo = now - 86400;
+
+const response = await client.getSpotKlinesV1({
+  symbol: 'BTC_USDT',
+  from: oneDayAgo,
+  to: now,
+  step: 60, // 1-hour candles
+});
+
+for (const kline of response.data.klines) {
+  console.log(`${new Date(kline.timestamp * 1000).toISOString()} — close: ${kline.close}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Complete Market Snapshot Example
+
+<CodeGroup>
+```typescript Full Market Snapshot
+import { RestClient } from 'bitmart-api';
+
+async function marketSnapshot(symbol: string) {
+  const client = new RestClient();
+
+  // Run public requests in parallel
+  const [ticker, orderBook, trades, klines] = await Promise.all([
+    client.getSpotTickerV3({ symbol }),
+    client.getSpotOrderBookDepthV3({ symbol, limit: 5 }),
+    client.getSpotRecentTrades({ symbol, limit: 5 }),
+    client.getSpotLatestKlineV3({ symbol, step: 60, limit: 5 }),
+  ]);
+
+  console.log(`=== ${symbol} Snapshot ===`);
+  console.log(`Last price:  ${ticker.data.last}`);
+  console.log(`24h change:  ${ticker.data.fluctuation}`);
+  console.log(`Top bid:     ${orderBook.data.bids[0][0]}`);
+  console.log(`Top ask:     ${orderBook.data.asks[0][0]}`);
+  console.log(`Last trade:  ${trades.data[0][2]} (${trades.data[0][4]})`);
+  console.log(`Latest 1h candle close: ${klines.data[0][4]}`);
+}
+
+await marketSnapshot('BTC_USDT');
+```
+</CodeGroup>

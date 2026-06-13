@@ -1,0 +1,548 @@
+---
+title: "Futures Market Data REST API Reference"
+sidebarTitle: "Market Data"
+description: "Access real-time and historical BitMart USD-M futures market data: contract details, order book depth, klines, funding rates, and open interest."
+---
+
+The BitMart `FuturesClientV2` exposes a full suite of **public market data** endpoints for USD-M perpetual futures contracts. No API key is required for any of the methods on this page — instantiate the client without credentials to query prices, order books, funding rates, and historical klines.
+
+## Installation & Setup
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+// Public endpoints — no credentials needed
+const client = new FuturesClientV2();
+
+// Authenticated endpoints (private methods on other pages)
+const authClient = new FuturesClientV2({
+  apiKey: 'YOUR_API_KEY',
+  apiSecret: 'YOUR_API_SECRET',
+  apiMemo: 'YOUR_API_MEMO',
+});
+```
+
+---
+
+## System Status
+
+### `getSystemTime()`
+
+Returns the current server timestamp in milliseconds. Use this to synchronise your local clock before placing time-sensitive requests.
+
+**Signature**
+```typescript
+getSystemTime(): Promise<APIResponse<{ server_time: number }>>
+```
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const result = await client.getSystemTime();
+console.log('Server time:', result.data.server_time);
+```
+</CodeGroup>
+
+---
+
+### `getSystemStatus()`
+
+Returns the current operational status of all BitMart services. Use this to check for planned maintenance or incidents before trading.
+
+**Signature**
+```typescript
+getSystemStatus(): Promise<APIResponse<{ service: ServiceStatus[] }>>
+```
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const status = await client.getSystemStatus();
+console.log('Services:', JSON.stringify(status.data.service, null, 2));
+```
+</CodeGroup>
+
+---
+
+## Contract Information
+
+### `getFuturesContractDetails(params?)`
+
+Returns a list of all available futures symbols with full specification data: price/volume precision, leverage range, funding rate, open interest, contract expiry, and 24-hour statistics.
+
+**Signature**
+```typescript
+getFuturesContractDetails(params?: {
+  symbol?: string;
+}): Promise<APIResponse<{ symbols: FuturesContractDetails[] }>>
+```
+
+<ParamField query="symbol" type="string">
+  Optional contract symbol filter (e.g. `BTCUSDT`). Omit to retrieve all listed contracts.
+</ParamField>
+
+**Response fields (`FuturesContractDetails`)**
+
+<Expandable title="FuturesContractDetails fields">
+  | Field | Type | Description |
+  |---|---|---|
+  | `symbol` | string | Contract symbol, e.g. `BTCUSDT` |
+  | `base_currency` | string | Base asset (e.g. `BTC`) |
+  | `quote_currency` | string | Quote asset (e.g. `USDT`) |
+  | `last_price` | string | Most recent trade price |
+  | `index_price` | string | Underlying index price |
+  | `funding_rate` | string | Current funding rate |
+  | `expected_funding_rate` | string | Predicted next funding rate |
+  | `open_interest` | string | Open interest in contracts |
+  | `min_leverage` / `max_leverage` | string | Allowed leverage range |
+  | `price_precision` | string | Minimum price tick size |
+  | `vol_precision` | string | Minimum volume increment |
+  | `high_24h` / `low_24h` | string | 24-hour high/low prices |
+  | `volume_24h` | string | 24-hour volume (contracts) |
+  | `change_24h` | string | 24-hour price change |
+  | `expire_timestamp` | number | Contract expiry (0 for perpetuals) |
+  | `status` | string | Contract status |
+</Expandable>
+
+<CodeGroup>
+```typescript All contracts
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+// Fetch all contract details
+const result = await client.getFuturesContractDetails();
+for (const contract of result.data.symbols) {
+  console.log(`${contract.symbol}: last=${contract.last_price}, funding=${contract.funding_rate}`);
+}
+```
+
+```typescript Single contract
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+// Fetch a single contract
+const result = await client.getFuturesContractDetails({ symbol: 'BTCUSDT' });
+console.log(result.data.symbols[0]);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesContractDepth(params)`
+
+Returns the current order book (bids and asks) for a futures contract. Each entry is `[price, size, count]`.
+
+**Signature**
+```typescript
+getFuturesContractDepth(params: {
+  symbol: string;
+}): Promise<APIResponse<FuturesContractDepth>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+**Response fields (`FuturesContractDepth`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `timestamp` | number | Server timestamp (ms) |
+| `symbol` | string | Contract symbol |
+| `asks` | `[string, string, string][]` | Ask levels: `[price, size, count]` |
+| `bids` | `[string, string, string][]` | Bid levels: `[price, size, count]` |
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const depth = await client.getFuturesContractDepth({ symbol: 'BTCUSDT' });
+
+const topAsk = depth.data.asks[0];
+const topBid = depth.data.bids[0];
+console.log(`Best ask: ${topAsk[0]} | Best bid: ${topBid[0]}`);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesMarketTrade(params)`
+
+Returns the most recent trades executed on the order book for a given futures symbol.
+
+**Signature**
+```typescript
+getFuturesMarketTrade(params: {
+  symbol: string;
+  limit?: number;
+}): Promise<APIResponse<FuturesMarketTrade[]>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Number of recent trades to return. Default `50`; maximum `100`.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const trades = await client.getFuturesMarketTrade({
+  symbol: 'BTCUSDT',
+  limit: 20,
+});
+
+for (const trade of trades.data) {
+  const side = trade.is_buyer_maker ? 'SELL' : 'BUY';
+  console.log(`${side} ${trade.qty} @ ${trade.price}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Open Interest & Funding
+
+### `getFuturesOpenInterest(params)`
+
+Returns the current open interest for a futures contract in both contract units and USD value.
+
+**Signature**
+```typescript
+getFuturesOpenInterest(params: {
+  symbol: string;
+}): Promise<APIResponse<FuturesOpenInterest>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const oi = await client.getFuturesOpenInterest({ symbol: 'BTCUSDT' });
+console.log(`Open interest: ${oi.data.open_interest} contracts`);
+console.log(`Open interest value: $${oi.data.open_interest_value}`);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesFundingRate(params)`
+
+Returns the current and expected next funding rate for a perpetual futures contract.
+
+**Signature**
+```typescript
+getFuturesFundingRate(params: {
+  symbol: string;
+}): Promise<APIResponse<FuturesFundingRate>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const fr = await client.getFuturesFundingRate({ symbol: 'BTCUSDT' });
+console.log(`Current rate: ${fr.data.rate_value}`);
+console.log(`Expected rate: ${fr.data.expected_rate}`);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesFundingRateV2(params?)`
+
+Enhanced funding rate endpoint returning additional fields including the scheduled funding time and rate caps/floors for one or all contracts.
+
+**Signature**
+```typescript
+getFuturesFundingRateV2(
+  params?: FuturesFundingRateV2Request,
+): Promise<APIResponse<FuturesFundingRateV2Response>>
+```
+
+<ParamField query="symbol" type="string">
+  Optional contract symbol. Omit to retrieve funding rates for all contracts.
+</ParamField>
+
+**Additional response fields vs V1**
+
+| Field | Description |
+|---|---|
+| `funding_time` | Unix timestamp of the next scheduled funding settlement |
+| `funding_upper_limit` | Maximum funding rate cap |
+| `funding_lower_limit` | Minimum funding rate floor |
+
+<CodeGroup>
+```typescript Single symbol
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const result = await client.getFuturesFundingRateV2({ symbol: 'BTCUSDT' });
+const rate = result.data.list[0];
+console.log(`Next funding @ ${new Date(rate.funding_time * 1000).toISOString()}: ${rate.rate_value}`);
+```
+
+```typescript All symbols
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+// Omit params to fetch all contracts
+const result = await client.getFuturesFundingRateV2();
+console.log(`Total contracts: ${result.data.list.length}`);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesFundingRateHistory(params)`
+
+Returns historical funding rate settlements for a contract.
+
+**Signature**
+```typescript
+getFuturesFundingRateHistory(params: {
+  symbol: string;
+  limit?: string;
+}): Promise<APIResponse<{ list: FuturesFundingRateHistory[] }>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField query="limit" type="string">
+  Number of historical records to return (passed as a string).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const history = await client.getFuturesFundingRateHistory({
+  symbol: 'BTCUSDT',
+  limit: '50',
+});
+
+for (const record of history.data.list) {
+  console.log(`${record.funding_time}: ${record.funding_rate}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Klines (Candlesticks)
+
+### `getFuturesKlines(params)`
+
+Returns OHLCV candlestick data for a futures contract over a specified time range.
+
+**Signature**
+```typescript
+getFuturesKlines(
+  params: FuturesKlinesRequest,
+): Promise<APIResponse<FuturesKline[]>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField query="start_time" type="number" required>
+  Start of the time range as a Unix timestamp (seconds).
+</ParamField>
+
+<ParamField query="end_time" type="number" required>
+  End of the time range as a Unix timestamp (seconds).
+</ParamField>
+
+<ParamField query="step" type="number">
+  Candle interval in minutes. Common values:
+
+  | `step` | Interval |
+  |---|---|
+  | `1` | 1 minute |
+  | `3` | 3 minutes |
+  | `5` | 5 minutes |
+  | `15` | 15 minutes |
+  | `30` | 30 minutes |
+  | `60` | 1 hour |
+  | `120` | 2 hours |
+  | `240` | 4 hours |
+  | `480` | 8 hours |
+  | `720` | 12 hours |
+  | `1440` | 1 day |
+  | `10080` | 1 week |
+  | `43200` | 1 month |
+</ParamField>
+
+**Response fields (`FuturesKline`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `timestamp` | number | Candle open time (Unix seconds) |
+| `open_price` | string | Open price |
+| `close_price` | string | Close price |
+| `high_price` | string | High price |
+| `low_price` | string | Low price |
+| `volume` | string | Volume in contracts |
+
+<CodeGroup>
+```typescript 1-minute klines
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const klines = await client.getFuturesKlines({
+  symbol: 'BTCUSDT',
+  start_time: 1709130476,
+  end_time: 1709131476,
+  step: 1,  // 1-minute candles
+});
+
+for (const k of klines.data) {
+  console.log(`O:${k.open_price} H:${k.high_price} L:${k.low_price} C:${k.close_price} V:${k.volume}`);
+}
+```
+
+```typescript Hourly klines
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const now = Math.floor(Date.now() / 1000);
+const oneDayAgo = now - 86400;
+
+const klines = await client.getFuturesKlines({
+  symbol: 'ETHUSDT',
+  start_time: oneDayAgo,
+  end_time: now,
+  step: 60,  // 1-hour candles
+});
+
+console.log(`Received ${klines.data.length} hourly candles`);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesMarkPriceKlines(params)`
+
+Returns mark price OHLCV candlestick data. Mark price is used for PnL calculation and liquidation, and is typically smoother than last price. Accepts the same parameters as `getFuturesKlines`.
+
+**Signature**
+```typescript
+getFuturesMarkPriceKlines(
+  params: FuturesKlinesRequest,
+): Promise<APIResponse<FuturesKline[]>>
+```
+
+<Note>
+  Mark price klines use the same `FuturesKlinesRequest` and `FuturesKline` types as regular klines. Use these candles to analyse liquidation risk rather than market price action.
+</Note>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const now = Math.floor(Date.now() / 1000);
+
+const markKlines = await client.getFuturesMarkPriceKlines({
+  symbol: 'BTCUSDT',
+  start_time: now - 3600,
+  end_time: now,
+  step: 5,  // 5-minute candles
+});
+
+console.log(`Mark price klines: ${markKlines.data.length}`);
+```
+</CodeGroup>
+
+---
+
+## Leverage Brackets
+
+### `getFuturesLeverageBracket(params?)`
+
+Returns the leverage risk bracket rules for futures contracts, showing maintenance margin ratios at each notional size tier.
+
+**Signature**
+```typescript
+getFuturesLeverageBracket(params?: {
+  symbol?: string;
+}): Promise<APIResponse<{ rules: FuturesLeverageBracketRule[] }>>
+```
+
+<ParamField query="symbol" type="string">
+  Optional contract symbol. Omit to retrieve brackets for all contracts.
+</ParamField>
+
+**Response fields**
+
+<Expandable title="FuturesLeverageBracketRule fields">
+  | Field | Type | Description |
+  |---|---|---|
+  | `symbol` | string | Contract symbol |
+  | `brackets` | `FuturesLeverageBracket[]` | Array of bracket tiers |
+
+  **`FuturesLeverageBracket` fields:**
+
+  | Field | Type | Description |
+  |---|---|---|
+  | `bracket` | number | Bracket tier number |
+  | `initial_leverage` | number | Maximum leverage for this tier |
+  | `notional_cap` | string | Upper notional value for this tier |
+  | `notional_floor` | string | Lower notional value for this tier |
+  | `maint_margin_ratio` | string | Maintenance margin ratio |
+  | `cum` | string | Cumulative maintenance margin |
+</Expandable>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2();
+
+const brackets = await client.getFuturesLeverageBracket({ symbol: 'BTCUSDT' });
+
+for (const rule of brackets.data.rules) {
+  console.log(`${rule.symbol} has ${rule.brackets.length} leverage brackets`);
+  for (const b of rule.brackets) {
+    console.log(`  Bracket ${b.bracket}: max ${b.initial_leverage}x, MMR ${b.maint_margin_ratio}`);
+  }
+}
+```
+</CodeGroup>

@@ -1,0 +1,709 @@
+---
+title: "Futures Plan, TP/SL & Trail Orders Reference"
+sidebarTitle: "Plan & TP/SL"
+description: "Submit and manage BitMart futures conditional orders: plan trigger orders, take-profit/stop-loss position orders, and trailing stops via FuturesClientV2."
+---
+
+BitMart futures supports three categories of advanced conditional orders beyond simple limit and market orders. This page covers all three and their management methods. All methods require authentication (SIGNED).
+
+<Tip>
+  **When to use which order type:**
+  - **Plan orders** — trigger a new entry or exit order when the market price crosses a specified trigger price. Useful for breakout strategies or scheduled entries.
+  - **TP/SL orders** — take-profit and stop-loss orders attached to an existing open position. They fire against position size automatically.
+  - **Trail orders** — a trailing stop that dynamically follows price movement by a fixed callback rate, locking in profits as the market moves in your favour.
+</Tip>
+
+## Setup
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+```
+
+---
+
+## Plan Orders
+
+Plan orders are **trigger-based conditional orders**. When the market price reaches the `trigger_price`, the exchange submits a limit or market order at the `executive_price` on your behalf.
+
+### `submitFuturesPlanOrder(params)`
+
+Submits a new plan (trigger) order.
+
+**Signature**
+```typescript
+submitFuturesPlanOrder(params: SubmitFuturesPlanOrderRequest): Promise<
+  APIResponse<{ order_id: number }>
+>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField body="side" type="number" required>
+  Order side:
+  - `1` — buy_open_long
+  - `2` — buy_close_short
+  - `3` — sell_close_long
+  - `4` — sell_open_short
+</ParamField>
+
+<ParamField body="trigger_price" type="string" required>
+  The market price level that activates this order.
+</ParamField>
+
+<ParamField body="executive_price" type="string">
+  The price at which the triggered order executes (required for `limit` type; omit for `market`).
+</ParamField>
+
+<ParamField body="price_way" type="number" required>
+  Trigger direction: `1` = price rises to trigger, `2` = price falls to trigger.
+</ParamField>
+
+<ParamField body="price_type" type="number" required>
+  Which price to compare against: `1` = last price, `2` = mark price.
+</ParamField>
+
+<ParamField body="size" type="number" required>
+  Order quantity in contracts.
+</ParamField>
+
+<ParamField body="leverage" type="string" required>
+  Leverage multiplier (e.g. `"10"`).
+</ParamField>
+
+<ParamField body="open_type" type="string" required>
+  Margin mode: `cross` or `isolated`.
+</ParamField>
+
+<ParamField body="type" type="string">
+  Execution type: `limit` (default), `market`, `take_profit`, or `stop_loss`.
+</ParamField>
+
+<ParamField body="mode" type="number">
+  Time-in-force: `1`=GTC, `2`=FOK, `3`=IOC, `4`=Post Only.
+</ParamField>
+
+<ParamField body="plan_category" type="number">
+  Plan category: `1` = normal plan, `2` = position TP/SL plan.
+</ParamField>
+
+<ParamField body="preset_take_profit_price" type="string">
+  Optional preset take-profit price to attach when the plan order triggers.
+</ParamField>
+
+<ParamField body="preset_stop_loss_price" type="string">
+  Optional preset stop-loss price to attach when the plan order triggers.
+</ParamField>
+
+<CodeGroup>
+```typescript Breakout long entry
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Trigger a long entry when BTC breaks above $72,000
+const plan = await client.submitFuturesPlanOrder({
+  symbol: 'BTCUSDT',
+  side: 1,                // buy_open_long
+  type: 'limit',
+  trigger_price: '72000',
+  executive_price: '72050',
+  price_way: 1,           // price rises to trigger
+  price_type: 1,          // last price
+  size: 1,
+  leverage: '5',
+  open_type: 'cross',
+});
+
+console.log('Plan order ID:', plan.data.order_id);
+```
+
+```typescript Stop entry on breakdown
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Trigger a short entry when BTC falls below $65,000
+const plan = await client.submitFuturesPlanOrder({
+  symbol: 'BTCUSDT',
+  side: 4,                // sell_open_short
+  type: 'market',
+  trigger_price: '65000',
+  price_way: 2,           // price falls to trigger
+  price_type: 2,          // mark price
+  size: 2,
+  leverage: '3',
+  open_type: 'isolated',
+});
+
+console.log('Plan order ID:', plan.data.order_id);
+```
+</CodeGroup>
+
+---
+
+### `cancelFuturesPlanOrder(params)`
+
+Cancels a pending plan order by order ID or client order ID.
+
+**Signature**
+```typescript
+cancelFuturesPlanOrder(
+  params: CancelFuturesPlanOrderRequest,
+): Promise<APIResponse<any>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol.
+</ParamField>
+
+<ParamField body="order_id" type="string">
+  Exchange plan order ID to cancel.
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  Client order ID to cancel.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+await client.cancelFuturesPlanOrder({
+  symbol: 'BTCUSDT',
+  order_id: '123456789',
+});
+
+console.log('Plan order cancelled');
+```
+</CodeGroup>
+
+---
+
+### `updateFuturesPlanOrder(params)`
+
+Modifies the trigger price and/or execution price of an existing pending plan order.
+
+**Signature**
+```typescript
+updateFuturesPlanOrder(params: UpdateFuturesPlanOrderRequest): Promise<
+  APIResponse<{ order_id: string }>
+>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol.
+</ParamField>
+
+<ParamField body="order_id" type="string">
+  Plan order ID to modify.
+</ParamField>
+
+<ParamField body="trigger_price" type="string" required>
+  New trigger price.
+</ParamField>
+
+<ParamField body="executive_price" type="string">
+  New execution price (for limit orders).
+</ParamField>
+
+<ParamField body="price_type" type="number" required>
+  Price reference: `1` = last price, `2` = mark price.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  Order type: `limit` or `market`.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const result = await client.updateFuturesPlanOrder({
+  symbol: 'BTCUSDT',
+  order_id: '123456789',
+  trigger_price: '73000',    // Updated trigger
+  executive_price: '73050',  // Updated execution price
+  price_type: 1,
+  type: 'limit',
+});
+
+console.log('Updated plan order:', result.data.order_id);
+```
+</CodeGroup>
+
+---
+
+### `updateFuturesPresetPlanOrder(params)`
+
+Modifies the preset take-profit and/or stop-loss prices attached to an existing plan order (set at submission time).
+
+**Signature**
+```typescript
+updateFuturesPresetPlanOrder(
+  params: UpdateFuturesPresetPlanOrderRequest,
+): Promise<APIResponse<{ order_id: string }>>
+```
+
+<ParamField body="order_id" type="string" required>
+  Plan order ID.
+</ParamField>
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol.
+</ParamField>
+
+<ParamField body="preset_take_profit_price" type="string">
+  New take-profit price.
+</ParamField>
+
+<ParamField body="preset_stop_loss_price" type="string">
+  New stop-loss price.
+</ParamField>
+
+<ParamField body="preset_take_profit_price_type" type="number">
+  TP price type: `1` = last price, `2` = mark price.
+</ParamField>
+
+<ParamField body="preset_stop_loss_price_type" type="number">
+  SL price type: `1` = last price, `2` = mark price.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+await client.updateFuturesPresetPlanOrder({
+  order_id: '123456789',
+  symbol: 'BTCUSDT',
+  preset_take_profit_price: '76000',
+  preset_take_profit_price_type: 1,
+  preset_stop_loss_price: '69000',
+  preset_stop_loss_price_type: 1,
+});
+```
+</CodeGroup>
+
+---
+
+### `getFuturesAccountPlanOrders(params?)`
+
+Returns all currently active plan orders.
+
+**Signature**
+```typescript
+getFuturesAccountPlanOrders(
+  params?: FuturesAccountPlanOrdersRequest,
+): Promise<APIResponse<FuturesAccountPlanOrders[]>>
+```
+
+<ParamField query="symbol" type="string">
+  Filter by contract symbol.
+</ParamField>
+
+<ParamField query="type" type="string">
+  Filter by execution type: `limit` or `market`.
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Maximum results to return.
+</ParamField>
+
+<ParamField query="plan_type" type="string">
+  Filter by plan category: `plan` (normal) or `profit_loss` (TP/SL plan).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const planOrders = await client.getFuturesAccountPlanOrders({
+  symbol: 'BTCUSDT',
+  plan_type: 'plan',
+});
+
+for (const order of planOrders.data) {
+  console.log(`Plan ${order.order_id}: trigger=${order.trigger_price}, exec=${order.executive_price}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Take-Profit / Stop-Loss Orders
+
+TP/SL orders are **position-level conditional orders** that execute against an existing open position when the trigger price is reached. They differ from plan orders in that they are attached to a position rather than opening a new one.
+
+<Note>
+  `side` for TP/SL orders is limited to `2` (buy_close_short — close a short) or `3` (sell_close_long — close a long), since TP/SL orders always close existing positions.
+</Note>
+
+### `submitFuturesTPSLOrder(params)`
+
+Submits a take-profit or stop-loss order against an open position.
+
+**Signature**
+```typescript
+submitFuturesTPSLOrder(params: SubmitFuturesTPSLOrderRequest): Promise<
+  APIResponse<{
+    order_id: string;
+    client_order_id?: string;
+  }>
+>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  Order type: `take_profit` or `stop_loss`.
+</ParamField>
+
+<ParamField body="side" type="number" required>
+  Close side: `2` (buy_close_short) or `3` (sell_close_long).
+</ParamField>
+
+<ParamField body="trigger_price" type="string" required>
+  The market price at which this order activates.
+</ParamField>
+
+<ParamField body="executive_price" type="string" required>
+  The price at which the order executes once triggered (for limit execution).
+</ParamField>
+
+<ParamField body="price_type" type="number" required>
+  Reference price for trigger: `1` = last price, `2` = mark price.
+</ParamField>
+
+<ParamField body="size" type="number">
+  Quantity to close in contracts. Omit to close the entire position.
+</ParamField>
+
+<ParamField body="plan_category" type="number">
+  Plan category: `1` = position TP/SL, `2` = preset TP/SL on plan order.
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  Optional client-defined ID.
+</ParamField>
+
+<ParamField body="category" type="string">
+  Execution category: `limit` or `market`.
+</ParamField>
+
+<CodeGroup>
+```typescript Take profit on a long position
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Take profit: close long when price reaches $75,000
+const tp = await client.submitFuturesTPSLOrder({
+  symbol: 'BTCUSDT',
+  type: 'take_profit',
+  side: 3,              // sell_close_long
+  trigger_price: '75000',
+  executive_price: '74950',
+  price_type: 2,        // mark price
+  plan_category: 1,
+  category: 'limit',
+});
+
+console.log('TP order ID:', tp.data.order_id);
+```
+
+```typescript Stop loss on a long position
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Stop loss: close long at market if price drops to $60,000
+const sl = await client.submitFuturesTPSLOrder({
+  symbol: 'BTCUSDT',
+  type: 'stop_loss',
+  side: 3,              // sell_close_long
+  trigger_price: '60000',
+  executive_price: '59900',
+  price_type: 2,        // mark price
+  plan_category: 1,
+  category: 'market',
+});
+
+console.log('SL order ID:', sl.data.order_id);
+```
+
+```typescript Stop loss on a short position
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Stop loss: close short if price rises to $75,000
+const sl = await client.submitFuturesTPSLOrder({
+  symbol: 'BTCUSDT',
+  type: 'stop_loss',
+  side: 2,              // buy_close_short
+  trigger_price: '75000',
+  executive_price: '75100',
+  price_type: 1,        // last price
+  plan_category: 1,
+  category: 'limit',
+});
+
+console.log('SL order ID:', sl.data.order_id);
+```
+</CodeGroup>
+
+---
+
+### `updateFuturesTPSLOrder(params)`
+
+Modifies the trigger price and/or execution price of an existing TP/SL order.
+
+**Signature**
+```typescript
+updateFuturesTPSLOrder(params: UpdateFuturesTPSLOrderRequest): Promise<
+  APIResponse<{ order_id: string }>
+>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol.
+</ParamField>
+
+<ParamField body="order_id" type="string">
+  TP/SL order ID to modify.
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  Client order ID to modify.
+</ParamField>
+
+<ParamField body="trigger_price" type="string" required>
+  New trigger price.
+</ParamField>
+
+<ParamField body="executive_price" type="string">
+  New execution price.
+</ParamField>
+
+<ParamField body="price_type" type="number" required>
+  Reference price: `1` = last price, `2` = mark price.
+</ParamField>
+
+<ParamField body="plan_category" type="number">
+  Plan category: `1` or `2`.
+</ParamField>
+
+<ParamField body="category" type="string">
+  Execution type: `limit` or `market`.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Move take-profit up as the market rises
+const result = await client.updateFuturesTPSLOrder({
+  symbol: 'BTCUSDT',
+  order_id: '987654321',
+  trigger_price: '78000',    // New TP trigger
+  executive_price: '77950',  // New execution price
+  price_type: 2,
+  plan_category: 1,
+  category: 'limit',
+});
+
+console.log('Updated TP/SL order:', result.data.order_id);
+```
+</CodeGroup>
+
+---
+
+## Trailing Stop Orders
+
+Trail orders follow the market at a fixed percentage distance (`callback_rate`). As price moves in your favour, the stop price trails automatically. If price reverses by the `callback_rate`, the order triggers and closes your position.
+
+### `submitFuturesTrailOrder(params)`
+
+Submits a trailing stop order.
+
+**Signature**
+```typescript
+submitFuturesTrailOrder(params: SubmitFuturesTrailOrderRequest): Promise<
+  APIResponse<{ order_id: number }>
+>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField body="side" type="number" required>
+  Order side (1–4, same values as standard orders).
+</ParamField>
+
+<ParamField body="leverage" type="string" required>
+  Leverage multiplier.
+</ParamField>
+
+<ParamField body="open_type" type="string" required>
+  Margin mode: `cross` or `isolated`.
+</ParamField>
+
+<ParamField body="size" type="number" required>
+  Order quantity in contracts.
+</ParamField>
+
+<ParamField body="activation_price" type="string" required>
+  Price at which trailing starts. The trailing stop does not activate until this price is reached.
+</ParamField>
+
+<ParamField body="callback_rate" type="string" required>
+  Trailing callback percentage (e.g. `"1.5"` for 1.5%). The order triggers when price reverses by this percentage from its peak/trough.
+</ParamField>
+
+<ParamField body="activation_price_type" type="number" required>
+  Reference price for activation: `1` = last price, `2` = mark price.
+</ParamField>
+
+<Note>
+  Trail orders combine an activation price with a callback rate. The stop does not activate until `activation_price` is reached, then trails by `callback_rate`. This avoids premature triggering on entry volatility.
+</Note>
+
+<CodeGroup>
+```typescript Trailing stop to protect a long position
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Trail: activates when BTC hits $72,000, then trails 2% below peak
+const trailOrder = await client.submitFuturesTrailOrder({
+  symbol: 'BTCUSDT',
+  side: 3,                     // sell_close_long
+  leverage: '5',
+  open_type: 'cross',
+  size: 1,
+  activation_price: '72000',   // Start trailing at $72K
+  callback_rate: '2.0',        // Trigger if drops 2% from peak
+  activation_price_type: 2,    // mark price
+});
+
+console.log('Trail order ID:', trailOrder.data.order_id);
+```
+</CodeGroup>
+
+---
+
+### `cancelFuturesTrailOrder(params)`
+
+Cancels an active trailing stop order.
+
+**Signature**
+```typescript
+cancelFuturesTrailOrder(
+  params: CancelFuturesTrailOrderRequest,
+): Promise<APIResponse<any>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol.
+</ParamField>
+
+<ParamField body="order_id" type="string">
+  Trail order ID to cancel.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+await client.cancelFuturesTrailOrder({
+  symbol: 'BTCUSDT',
+  order_id: '112233445',
+});
+
+console.log('Trail order cancelled');
+```
+</CodeGroup>
+
+---
+
+## Order Type Comparison
+
+<Tip>
+  Use this table to choose the right conditional order type for your strategy:
+
+  | Type | Trigger | Closes existing position? | Use case |
+  |---|---|---|---|
+  | **Plan order** | Price level | No (opens new order) | Breakout entry, scaled entries |
+  | **TP/SL order** | Price level | Yes (position-level) | Risk management on open positions |
+  | **Trail order** | Price level + callback rate | Yes (closes position) | Lock in profits on trending moves |
+</Tip>

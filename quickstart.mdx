@@ -1,47 +1,225 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with the BitMart API SDK"
+sidebarTitle: "Quickstart"
+description: "Install the bitmart-api Node.js SDK, create a REST client, fetch live market data, and place your first authenticated order in minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through installing the `bitmart-api` SDK, fetching public market data without any credentials, and then making authenticated calls using your BitMart API key. By the end you will have a working client that can read account balances and subscribe to a live WebSocket ticker.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
 
-    ```bash
-    npm install your-package
-    ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+### Install the package
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+Add `bitmart-api` to your project using your preferred package manager.
 
-    ```bash
-    your-cli start
+<CodeGroup>
+
+```bash npm
+npm install bitmart-api
+```
+
+```bash yarn
+yarn add bitmart-api
+```
+
+```bash pnpm
+pnpm add bitmart-api
+```
+
+</CodeGroup>
+
+<Note>
+  The package requires **Node.js 20 or later**. Older Node.js releases (such as the end-of-life v18) do not expose the Web Crypto API that the SDK uses for request signing.
+</Note>
+
+### Import and create a client
+
+The SDK ships both ESM and CommonJS builds, so the same package works in any Node.js project.
+
+<Tabs>
+  <Tab title="TypeScript / ESM">
+    ```typescript
+    import { RestClient } from 'bitmart-api';
+
+    const client = new RestClient();
     ```
-  </Step>
-</Steps>
+  </Tab>
+  <Tab title="CommonJS">
+    ```javascript
+    const { RestClient } = require('bitmart-api');
+
+    const client = new RestClient();
+    ```
+  </Tab>
+</Tabs>
+
+No arguments are needed for public endpoints — the client works without API credentials for any unauthenticated call.
+
+### Fetch public market data
+
+Public endpoints require no API key. The example below retrieves the latest tickers for all spot trading pairs.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+async function getSpotTickers() {
+  try {
+    const tickers = await client.getSpotTickersV3();
+    console.log('Tickers:', JSON.stringify(tickers, null, 2));
+  } catch (e) {
+    console.error('Request error:', e);
+  }
+}
+
+getSpotTickers();
+```
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  All SDK methods return Promises, so you can use either `async/await` (shown above) or `.then()` / `.catch()` chaining.
 </Tip>
+
+### Create an authenticated client
+
+Private endpoints — such as reading your account balance or placing an order — require API credentials. Create your keys at [https://www.bitmart.com/api-settings](https://www.bitmart.com/api-settings) and store them in environment variables.
+
+<Tabs>
+  <Tab title="TypeScript / ESM">
+    ```typescript
+    import { RestClient } from 'bitmart-api';
+
+    const client = new RestClient({
+      apiKey: process.env.BITMART_API_KEY!,
+      apiSecret: process.env.BITMART_API_SECRET!,
+      apiMemo: process.env.BITMART_API_MEMO!,
+    });
+    ```
+  </Tab>
+  <Tab title="CommonJS">
+    ```javascript
+    const { RestClient } = require('bitmart-api');
+
+    const client = new RestClient({
+      apiKey: process.env.BITMART_API_KEY,
+      apiSecret: process.env.BITMART_API_SECRET,
+      apiMemo: process.env.BITMART_API_MEMO,
+    });
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+  All three fields — `apiKey`, `apiSecret`, and `apiMemo` — are required together. Providing only one or two will throw an error at construction time.
+</Warning>
+
+### Fetch your account balances
+
+With an authenticated client you can call private endpoints such as `getAccountBalancesV1`.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+});
+
+async function getBalances() {
+  try {
+    const balances = await client.getAccountBalancesV1();
+    console.log('Account balances:', JSON.stringify(balances, null, 2));
+  } catch (e) {
+    console.error('Request error:', e);
+  }
+}
+
+getBalances();
+```
+
+### Place a spot order
+
+Once your client is authenticated you can submit orders. The example below places a market sell order using `submitSpotOrderV2`.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+});
+
+async function placeOrder() {
+  try {
+    const result = await client.submitSpotOrderV2({
+      symbol: 'BTC_USDT',
+      side: 'sell',
+      type: 'market',
+      size: '0.0001',
+    });
+    console.log('Order submitted:', JSON.stringify(result, null, 2));
+  } catch (e) {
+    console.error('Order error:', e);
+  }
+}
+
+placeOrder();
+```
+
+<Warning>
+  The example above submits a **real market order** if run against the live environment. Test with very small sizes or use the `FuturesClientV2` with `demoTrading: true` for simulated trading.
+</Warning>
+
+### Subscribe to a live WebSocket ticker
+
+The `WebsocketClient` handles connections, heartbeats, and reconnections automatically. For public streams, no API credentials are required.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const wsClient = new WebsocketClient();
+
+// Connection opened
+wsClient.on('open', (data) => {
+  console.log('WebSocket connected:', data?.wsKey);
+});
+
+// Market data received
+wsClient.on('update', (data) => {
+  console.log('Ticker update:', JSON.stringify(data, null, 2));
+});
+
+// Transparent reconnection — client resubscribes automatically
+wsClient.on('reconnected', (data) => {
+  console.log('WebSocket reconnected:', data);
+});
+
+// Handle errors
+wsClient.on('exception', (data) => {
+  console.error('WebSocket error:', data);
+});
+
+// Subscribe to the BTC/USDT spot ticker
+wsClient.subscribe('spot/ticker:BTC_USDT', 'spot');
+```
+
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/authentication">
+    Understand how the API key, secret, and memo combine to produce signed requests.
+  </Card>
+  <Card title="REST Client Reference" icon="server" href="/rest/rest-client">
+    Browse all available methods on `RestClient` and `FuturesClientV2`.
+  </Card>
+  <Card title="WebSocket Overview" icon="wifi" href="/websockets/overview">
+    Subscribe to private account streams and handle real-time order and position updates.
+  </Card>
+  <Card title="Demo Trading" icon="flask" href="/rest/rest-client#demo-trading">
+    Use BitMart's simulated environment to test futures strategies risk-free.
+  </Card>
+</CardGroup>

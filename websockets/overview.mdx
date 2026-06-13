@@ -1,0 +1,202 @@
+---
+title: "WebsocketClient: Real-Time BitMart Data Streams"
+sidebarTitle: "Overview"
+description: "WebsocketClient unifies BitMart spot and futures real-time streams in one event-driven client with automatic reconnection and topic resubscription."
+---
+
+The `WebsocketClient` is the single entry point for all real-time data on BitMart. It manages six persistent WebSocket connections — covering spot and futures markets, public and private channels, across both API v1 and v2 — and handles connection lifecycle, heartbeats, authentication, and topic resubscription transparently so your application code only needs to react to events.
+
+## WebSocket Connections
+
+BitMart exposes distinct WebSocket endpoints for each combination of market (spot / futures), channel visibility (public / private), and API generation (v1 / v2). The `WebsocketClient` maps these to six internal connection keys defined in `WS_KEY_MAP`.
+
+| WsKey | URL | Notes |
+|---|---|---|
+| `spotPublicV1` | `wss://ws-manager-compress.bitmart.com/api?protocol=1.1` | Spot public channels |
+| `spotPrivateV1` | `wss://ws-manager-compress.bitmart.com/user?protocol=1.1` | Spot private channels |
+| `futuresPublicV1` | `wss://openapi-ws.bitmart.com/api?protocol=1.1` | Futures public (legacy v1) |
+| `futuresPrivateV1` | `wss://openapi-ws.bitmart.com/user?protocol=1.1` | Futures private (legacy v1) |
+| `futuresPublicV2` | `wss://openapi-ws-v2.bitmart.com/api?protocol=1.1` | Futures public v2 (**recommended**) |
+| `futuresPrivateV2` | `wss://openapi-ws-v2.bitmart.com/user?protocol=1.1` | Futures private v2 (**recommended**) |
+
+<Note>
+  New integrations should use the v2 futures endpoints (`futuresPublicV2` / `futuresPrivateV2`). The v1 futures endpoints are maintained for backwards compatibility. Demo trading is only available on the v2 futures connections.
+</Note>
+
+The library automatically routes every subscription to the correct connection based on the topic string prefix (`spot/` or `futures/`) and whether the topic is private.
+
+## Events
+
+The `WebsocketClient` extends Node.js `EventEmitter`. Bind handlers with `.on(event, handler)` before subscribing to any topics.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient();
+
+// Connection opened (fires once per WS connection, identified by wsKey)
+client.on('open', (data) => {
+  console.log('Connection opened:', data?.wsKey);
+});
+
+// Market data or account update received
+client.on('update', (data) => {
+  console.log('Data received:', JSON.stringify(data));
+});
+
+// Library is attempting to reconnect after a disconnect
+client.on('reconnect', (data) => {
+  console.log('Reconnecting:', data);
+});
+
+// Reconnect completed — topics have been resubscribed automatically
+client.on('reconnected', (data) => {
+  console.log('Reconnected:', data);
+});
+
+// Server confirmed successful WebSocket authentication
+client.on('authenticated', (data) => {
+  console.log('Authenticated:', data);
+});
+
+// Server replied to a subscribe / unsubscribe request
+client.on('response', (data) => {
+  console.log('Server response:', data);
+});
+
+// An error occurred (parse failure, auth error, server rejection, etc.)
+client.on('exception', (data) => {
+  console.error('Exception:', data);
+});
+
+// Connection closed (precedes reconnect if unexpected)
+client.on('close', (data) => {
+  console.error('Connection closed:', data);
+});
+```
+
+| Event | When it fires |
+|---|---|
+| `open` | A WebSocket connection is established |
+| `update` | A market data or account data message is received |
+| `reconnect` | The library detected a dropped connection and is retrying |
+| `reconnected` | A dropped connection has been restored |
+| `authenticated` | The server accepted the login / access request on a private channel |
+| `response` | The server replied to a `subscribe` or `unsubscribe` request |
+| `exception` | An error occurred (auth failure, bad message, etc.) |
+| `close` | A connection closed (may precede a reconnect cycle) |
+
+## Core Methods
+
+### `subscribe(topics, market)`
+
+The primary subscription method. Accepts a single topic string or an array of topic strings, plus the market name (`'spot'` or `'futures'`). Automatically routes each topic to the correct underlying WebSocket connection and handles authentication when needed.
+
+```typescript
+// Single topic
+client.subscribe('spot/ticker:BTC_USDT', 'spot');
+
+// Multiple topics at once
+client.subscribe(
+  ['spot/ticker:BTC_USDT', 'spot/ticker:ETH_USDT'],
+  'spot',
+);
+```
+
+### `unsubscribe(topics, market)`
+
+Removes topics from the active subscription list and sends an unsubscribe request to the server. Topics removed this way will **not** be resubscribed after a reconnect.
+
+```typescript
+client.unsubscribe('spot/ticker:BTC_USDT', 'spot');
+```
+
+### `subscribeTopics(topics)`
+
+Lower-level method that accepts an array of topic strings and automatically determines the correct connection and market from the topic name prefix. Useful when managing mixed spot + futures topics in one call.
+
+```typescript
+client.subscribeTopics([
+  'spot/ticker:BTC_USDT',
+  'futures/ticker',
+]);
+```
+
+### `unsubscribeTopics(topics)`
+
+Lower-level counterpart to `subscribeTopics`. Sends unsubscribe requests and removes topics from the reconnect cache.
+
+```typescript
+client.unsubscribeTopics(['spot/ticker:BTC_USDT']);
+```
+
+### `connectAll()`
+
+Pre-establishes all four primary connections (spot public, spot private, futures public v2, futures private v2) immediately, rather than waiting for the first subscription to trigger lazy connection. Returns an array of promises that resolve when each connection is ready.
+
+```typescript
+await Promise.all(client.connectAll());
+console.log('All connections ready');
+```
+
+<Tip>
+  Calling `connectAll()` is optional. If you omit it, connections are created automatically on the first `subscribe()` call for each market/visibility combination.
+</Tip>
+
+## Topic Format
+
+BitMart WebSocket topics follow the pattern `{market}/{channel}:{symbol}` for symbol-specific channels, or `{market}/{channel}` for market-wide channels.
+
+```
+spot/ticker:BTC_USDT        ← spot ticker for BTC_USDT
+spot/depth20:ETH_USDT       ← spot 20-level order book for ETH_USDT
+spot/kline1m:BTC_USDT       ← spot 1-minute kline for BTC_USDT
+futures/ticker              ← all futures tickers (no symbol suffix)
+futures/depth20:BTCUSDT     ← futures 20-level order book for BTCUSDT
+futures/klineBin1m:BTCUSDT  ← futures 1-minute kline for BTCUSDT
+spot/user/order:BTC_USDT    ← private: spot order updates for BTC_USDT
+futures/asset:USDT          ← private: futures asset (balance) for USDT
+futures/position            ← private: all futures positions
+```
+
+<Note>
+  Spot symbols use underscores (`BTC_USDT`). Futures symbols omit the underscore (`BTCUSDT`). Use the correct format for each market to avoid subscription errors.
+</Note>
+
+The library inspects the topic prefix to determine the market (`spot` vs `futures`) and inspects sub-components like `user`, `asset`, `order`, and `position` to determine whether the topic is private. You never need to manually specify `isPrivate` unless you are using a custom or undocumented topic string.
+
+## Connection Lifecycle
+
+Connections are created lazily — no network activity occurs until the first `subscribe()` call for a given market/visibility combination. Once a connection is open, the library sends a periodic ping (raw string `'ping'` for spot; `{"action":"ping"}` for futures) and monitors the pong response to detect dead connections. When a disconnect is detected, the library emits `reconnect`, re-establishes the connection, re-authenticates if needed, and resubscribes every topic that was previously active — then emits `reconnected`. Your event handlers continue to work without any manual intervention.
+
+```
+First subscribe()
+       │
+       ▼
+  Open WS connection
+       │
+       ▼
+  (private?) ──yes──► Send login/access request ──► emit 'authenticated'
+       │
+       ▼
+  Send subscribe request ──► emit 'response'
+       │
+       ▼
+  Receive updates ──────────────────────────────────► emit 'update'
+       │
+  (disconnected?)
+       │
+       ▼
+  emit 'reconnect' ──► Re-open connection ──► Re-auth ──► Resubscribe ──► emit 'reconnected'
+```
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Public Streams" icon="globe" href="/websockets/public-streams">
+    Subscribe to market data — tickers, order books, trades, and klines — for spot and futures markets without credentials.
+  </Card>
+  <Card title="Private Streams" icon="lock" href="/websockets/private-streams">
+    Subscribe to account-level streams — orders, positions, and balances — using your API key, secret, and memo.
+  </Card>
+</CardGroup>

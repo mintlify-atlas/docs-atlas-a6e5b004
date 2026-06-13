@@ -1,0 +1,324 @@
+---
+title: "Subscribe to Private BitMart WebSocket Streams"
+sidebarTitle: "Private Streams"
+description: "Stream live account data — orders, positions, and balances — over authenticated BitMart WebSocket connections. Requires API key, secret, and memo."
+---
+
+Private WebSocket streams give your application real-time visibility into account-level events: order status changes, position updates, and asset balance changes. These channels require API credentials (`apiKey`, `apiSecret`, and `apiMemo`) because the library must authenticate the connection before the server will accept topic subscriptions.
+
+## Setup
+
+Pass your API credentials to the `WebsocketClient` constructor. The library detects private topics automatically (topics containing `user/`, `asset/`, `order`, or `position` path components) and routes them to the correct authenticated connection.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY || 'apiKeyHere',
+  apiSecret: process.env.API_SECRET || 'apiSecretHere',
+  apiMemo: process.env.API_MEMO || 'apiMemoHere',
+});
+```
+
+<Warning>
+  Store credentials in environment variables, not in source code. The `apiMemo` is the memo you set when creating the API key on BitMart — it is part of the HMAC signature and is required for all private WebSocket operations.
+</Warning>
+
+## Authentication Flow
+
+When you subscribe to a private topic, the library:
+
+1. Opens a WebSocket connection to the appropriate private endpoint.
+2. Constructs an HMAC-SHA256 signature over `{expiresAt}#{apiMemo}#bitmart.WebSocket` using `apiSecret`.
+3. Sends a login/access request with `[apiKey, expiresAt, signature]` as arguments.
+4. Waits for the server to confirm authentication, then emits the `authenticated` event.
+5. Sends the topic subscription request and begins delivering `update` events.
+
+This entire flow is handled automatically — you do not need to send any auth messages manually.
+
+### The `authenticated` Event
+
+Listen for `authenticated` to confirm the connection is ready to receive private data. This is especially useful for debugging or for triggering subsequent actions that depend on a confirmed authenticated session.
+
+```typescript
+client.on('authenticated', (data) => {
+  console.log('WebSocket authenticated successfully:', data);
+});
+```
+
+<Note>
+  The `authenticated` event fires once per private WebSocket connection. Because connections are reused across all private topics for the same market, it fires at most once for spot private and once for futures private per session (or after each reconnect).
+</Note>
+
+## Spot Private Topics
+
+Spot private topics use the `spot/user/` prefix and require the symbol appended after a colon.
+
+<Steps>
+  <Step title="Order Updates">
+    Receive real-time updates when a spot order is placed, partially filled, fully filled, or cancelled.
+
+    ```typescript
+    // Orders for a specific trading pair
+    client.subscribe('spot/user/order:BTC_USDT', 'spot');
+    ```
+  </Step>
+  <Step title="Balance Updates">
+    Receive real-time updates when account balances change (e.g. after a trade or deposit).
+
+    ```typescript
+    // Balance updates — use the asset name as the symbol
+    client.subscribe('spot/user/balance:USDT', 'spot');
+
+    // The special BALANCE_UPDATE topic covers all assets
+    // client.subscribe('spot/user/balance:BALANCE_UPDATE', 'spot');
+    ```
+  </Step>
+</Steps>
+
+## Futures Private Topics
+
+Futures private topics use the `futures/` prefix with channel names `asset`, `position`, and `order`. Symbols do not use underscores (`BTCUSDT`, not `BTC_USDT`).
+
+<Steps>
+  <Step title="Asset (Balance) Updates">
+    Stream balance changes for futures margin assets.
+
+    ```typescript
+    client.subscribe(
+      ['futures/asset:USDT', 'futures/asset:BTC', 'futures/asset:ETH'],
+      'futures',
+    );
+    ```
+  </Step>
+  <Step title="Position Updates">
+    Receive real-time updates on open futures positions (size, unrealised PnL, leverage, etc.).
+
+    ```typescript
+    // All open positions
+    client.subscribe('futures/position', 'futures');
+    ```
+  </Step>
+  <Step title="Order Updates">
+    Stream futures order lifecycle events — new, partially filled, filled, or cancelled.
+
+    ```typescript
+    // All futures order updates
+    client.subscribe('futures/order', 'futures');
+    ```
+  </Step>
+</Steps>
+
+## Demo Trading WebSocket
+
+BitMart provides a simulated (paper) trading environment for futures v2. Enable it by adding `demoTrading: true` to the client options. The library will connect to the demo endpoints automatically:
+
+- **Demo public v2**: `wss://openapi-wsdemo-v2.bitmart.com/api?protocol=1.1`
+- **Demo private v2**: `wss://openapi-wsdemo-v2.bitmart.com/user?protocol=1.1`
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const demoClient = new WebsocketClient({
+  apiKey: process.env.API_KEY || 'apiKeyHere',
+  apiSecret: process.env.API_SECRET || 'apiSecretHere',
+  apiMemo: process.env.API_MEMO || 'apiMemoHere',
+  demoTrading: true, // Connect to simulated trading environment (V2 Futures only)
+});
+
+demoClient.on('authenticated', (data) => {
+  console.log('Demo account authenticated:', data);
+});
+
+demoClient.on('update', (data) => {
+  console.log('Demo account update:', JSON.stringify(data));
+});
+
+// Subscribe to demo futures positions
+demoClient.subscribe('futures/position', 'futures');
+```
+
+<Note>
+  Demo mode only affects v2 futures WebSocket connections. Spot private connections always use the live endpoint regardless of the `demoTrading` setting. API keys are the same across live and demo environments.
+</Note>
+
+## Complete Working Example
+
+The examples below are adapted directly from the SDK's examples folder and show all recommended event handlers alongside private topic subscriptions.
+
+<CodeGroup>
+```typescript Spot Private
+import { LogParams, WebsocketClient } from 'bitmart-api';
+
+const account = {
+  key: process.env.API_KEY || 'apiKeyHere',
+  secret: process.env.API_SECRET || 'apiSecretHere',
+  memo: process.env.API_MEMO || 'apiMemoHere',
+};
+
+async function start() {
+  const client = new WebsocketClient({
+    apiKey: account.key,
+    apiSecret: account.secret,
+    apiMemo: account.memo,
+  });
+
+  client.on('open', (data) => {
+    console.log('connected ', data?.wsKey);
+  });
+
+  // Data received
+  client.on('update', (data) => {
+    console.info('data received: ', JSON.stringify(data));
+  });
+
+  // Something happened, attempting to reconnect
+  client.on('reconnect', (data) => {
+    console.log('reconnect: ', data);
+  });
+
+  // Reconnect successful
+  client.on('reconnected', (data) => {
+    console.log('reconnected: ', data);
+  });
+
+  // Connection closed. If unexpected, expect reconnect -> reconnected.
+  client.on('close', (data) => {
+    console.error('close: ', data);
+  });
+
+  // Reply to a request, e.g. "subscribe"/"unsubscribe"/"authenticate"
+  client.on('response', (data) => {
+    console.info('response: ', data);
+  });
+
+  client.on('exception', (data) => {
+    console.error('exception: ', data);
+  });
+
+  client.on('authenticated', (data) => {
+    console.log('authenticated: ', data);
+  });
+
+  try {
+    // Order updates for BTC_USDT
+    client.subscribe('spot/user/order:BTC_USDT', 'spot');
+
+    // Balance updates
+    // client.subscribe('spot/user/balance:BALANCE_UPDATE', 'spot');
+  } catch (e) {
+    console.error('Req error: ', e);
+  }
+}
+
+start();
+```
+
+```typescript Futures Private
+import { LogParams, WebsocketClient } from 'bitmart-api';
+
+const account = {
+  key: process.env.API_KEY || 'apiKeyHere',
+  secret: process.env.API_SECRET || 'apiSecretHere',
+  memo: process.env.API_MEMO || 'apiMemoHere',
+};
+
+async function start() {
+  const client = new WebsocketClient({
+    apiKey: account.key,
+    apiSecret: account.secret,
+    apiMemo: account.memo,
+  });
+
+  client.on('open', (data) => {
+    console.log('connected ', data?.wsKey);
+  });
+
+  // Data received
+  client.on('update', (data) => {
+    console.info('data received: ', JSON.stringify(data));
+  });
+
+  // Something happened, attempting to reconnect
+  client.on('reconnect', (data) => {
+    console.log('reconnect: ', data);
+  });
+
+  // Reconnect successful
+  client.on('reconnected', (data) => {
+    console.log('reconnected: ', data);
+  });
+
+  // Connection closed. If unexpected, expect reconnect -> reconnected.
+  client.on('close', (data) => {
+    console.error('close: ', data);
+  });
+
+  // Reply to a request, e.g. "subscribe"/"unsubscribe"/"authenticate"
+  client.on('response', (data) => {
+    console.info('response: ', data);
+  });
+
+  client.on('exception', (data) => {
+    console.error('exception: ', data);
+  });
+
+  client.on('authenticated', (data) => {
+    console.log('authenticated: ', data);
+  });
+
+  try {
+    // Assets (balance) channel
+    client.subscribe(
+      ['futures/asset:USDT', 'futures/asset:BTC', 'futures/asset:ETH'],
+      'futures',
+    );
+
+    // Position channel
+    // client.subscribe('futures/position', 'futures');
+
+    // Order channel
+    // client.subscribe('futures/order', 'futures');
+  } catch (e) {
+    console.error('Req error: ', e);
+  }
+}
+
+start();
+```
+</CodeGroup>
+
+## Custom Logger
+
+By default, the `WebsocketClient` uses its built-in logger which suppresses `trace`-level output. You can inject a custom logger as the second constructor argument to control log verbosity — for example to integrate with your application's logging framework or to enable detailed trace output during development.
+
+```typescript
+import { DefaultLogger, LogParams, WebsocketClient } from 'bitmart-api';
+
+/** Implement the same shape as DefaultLogger */
+const customLogger: typeof DefaultLogger = {
+  trace: (...params: LogParams): void => {
+    // Enable trace output for detailed WS lifecycle logging
+    console.log('trace', ...params);
+  },
+  info: (...params: LogParams): void => {
+    console.info('info', ...params);
+  },
+  error: (...params: LogParams): void => {
+    console.error('error', ...params);
+  },
+};
+
+const client = new WebsocketClient(
+  {
+    apiKey: process.env.API_KEY || 'apiKeyHere',
+    apiSecret: process.env.API_SECRET || 'apiSecretHere',
+    apiMemo: process.env.API_MEMO || 'apiMemoHere',
+  },
+  customLogger, // optional: inject a custom logger
+);
+```
+
+<Tip>
+  Enabling `trace`-level logging is the fastest way to diagnose connection or authentication issues. The library logs the raw outbound auth request (without the secret), the server's response, and every topic subscription confirmation at the `trace` level.
+</Tip>

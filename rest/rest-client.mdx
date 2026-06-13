@@ -1,0 +1,447 @@
+---
+title: "RestClient: Spot Trading & Account REST API"
+sidebarTitle: "RestClient"
+description: "Use RestClient to access BitMart's spot trading, margin, account management, and earn endpoints across the v1, v2, v3, and v4 REST API versions."
+---
+
+The `RestClient` is the primary REST API client in the `bitmart-api` SDK, covering all of BitMart's spot and margin trading, funding account, deposit/withdrawal, sub-account, and earn endpoints. It targets the main `https://api-cloud.bitmart.com` base URL and supports API versions v1 through v4, so you always have access to both current and legacy endpoints from a single, unified client.
+
+<Note>
+  Most methods accept a plain JavaScript object whose properties map 1-to-1 with the parameters listed in BitMart's official API documentation. TypeScript users get fully typed request and response objects out of the box.
+</Note>
+
+## Installation & Initialization
+
+<Steps>
+  <Step title="Install the package">
+    ```bash
+    npm install bitmart-api
+    ```
+  </Step>
+
+  <Step title="Import the client">
+    <Tabs>
+      <Tab title="ESM / TypeScript">
+        ```typescript
+        import { RestClient } from 'bitmart-api';
+        ```
+      </Tab>
+      <Tab title="CommonJS">
+        ```javascript
+        const { RestClient } = require('bitmart-api');
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Create a client instance">
+    <Tabs>
+      <Tab title="Authenticated (Private + Public)">
+        ```typescript
+        import { RestClient } from 'bitmart-api';
+
+        const client = new RestClient({
+          apiKey: 'YOUR_API_KEY',
+          apiSecret: 'YOUR_API_SECRET',
+          apiMemo: 'YOUR_API_MEMO',   // The memo you set when creating your API key
+        });
+        ```
+      </Tab>
+      <Tab title="Unauthenticated (Public Only)">
+        ```typescript
+        import { RestClient } from 'bitmart-api';
+
+        // No credentials needed for public market data endpoints
+        const client = new RestClient();
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+### Constructor Options
+
+The `RestClient` constructor accepts a `RestClientOptions` object as its first argument:
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  // Authentication (required for private endpoints)
+  apiKey: 'YOUR_API_KEY',
+  apiSecret: 'YOUR_API_SECRET',
+  apiMemo: 'YOUR_API_MEMO',
+
+  // Optional tuning
+  recvWindow: 5000,             // Default request validity window in ms (default: 5000)
+  strictParamValidation: false, // Throw on undefined params when true (default: false)
+  parseExceptions: true,        // Post-process and rethrow API errors (default: true)
+  keepAlive: false,             // Enable HTTP keep-alive via axios (default: false)
+
+  // Advanced
+  baseUrl: 'https://api-cloud.bitmart.com',  // Override the base URL if needed
+});
+```
+
+---
+
+## Spot Market Data
+
+BitMart's v3 quotation endpoints provide the most up-to-date market data. All market data methods are public and require no authentication.
+
+### Fetch All Spot Tickers
+
+`getSpotTickersV3()` returns a snapshot of price, volume, and change data for every listed spot trading pair.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+async function fetchTickers() {
+  try {
+    const tickers = await client.getSpotTickersV3();
+    console.log('All tickers:', JSON.stringify(tickers, null, 2));
+  } catch (e) {
+    console.error('Error fetching tickers:', e);
+  }
+}
+
+fetchTickers();
+```
+
+### Fetch Historical Klines (Candlesticks)
+
+`getSpotHistoryKlineV3()` returns OHLCV candlestick data for a symbol over a specified time range. Each candle is returned as a compact array: `[timestamp, open, high, low, close, volume, quoteVolume]`.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+async function fetchKlines() {
+  try {
+    const klines = await client.getSpotHistoryKlineV3({
+      symbol: 'BTC_USDT',
+      step: 60,                                        // Candle interval in minutes (1, 3, 5, 15, 30, 60, etc.)
+      from: Math.floor(Date.now() / 1000) - 3600,     // Start unix timestamp (seconds)
+      to: Math.floor(Date.now() / 1000),               // End unix timestamp (seconds)
+    });
+    console.log('BTC/USDT klines:', JSON.stringify(klines, null, 2));
+  } catch (e) {
+    console.error('Error fetching klines:', e);
+  }
+}
+
+fetchKlines();
+```
+
+### Fetch Order Book Depth
+
+`getSpotOrderBookDepthV3()` returns the current order book for a symbol, with bids and asks up to the requested depth.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+async function fetchOrderBook() {
+  try {
+    const book = await client.getSpotOrderBookDepthV3({
+      symbol: 'BTC_USDT',
+      limit: 20,    // Number of price levels on each side (optional, default varies)
+    });
+    console.log('BTC/USDT order book:', JSON.stringify(book, null, 2));
+  } catch (e) {
+    console.error('Error fetching order book:', e);
+  }
+}
+
+fetchOrderBook();
+```
+
+<Tip>
+  Use `getSpotRecentTrades()` to retrieve the latest executed trades for a symbol, and `getSpotTickerV3()` to fetch the ticker for a single pair.
+</Tip>
+
+---
+
+## Account & Wallet
+
+All account and wallet methods require authentication. Make sure you have initialised `RestClient` with your API credentials.
+
+### Get Funding Account Balances
+
+`getAccountBalancesV1()` returns balances for your main funding (wallet) account. Optionally pass a `currency` filter.
+
+<CodeGroup>
+```typescript TypeScript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function getBalances() {
+  try {
+    const result = await client.getAccountBalancesV1();
+    console.log('Funding balances:', JSON.stringify(result, null, 2));
+  } catch (e) {
+    console.error('Error:', e);
+  }
+}
+
+getBalances();
+```
+```javascript JavaScript
+const { RestClient } = require('bitmart-api');
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+});
+
+client
+  .getAccountBalancesV1()
+  .then((result) => console.log('Funding balances:', result))
+  .catch((err) => console.error('Error:', err));
+```
+</CodeGroup>
+
+### Get Spot Wallet Balance
+
+`getSpotWalletBalanceV1()` returns balances from your spot trading wallet (separate from the funding account).
+
+```typescript
+const spotWallet = await client.getSpotWalletBalanceV1();
+console.log('Spot wallet:', JSON.stringify(spotWallet, null, 2));
+```
+
+### Get Deposit Address
+
+`getAccountDepositAddressV1()` returns the deposit address for a given currency.
+
+```typescript
+const depositInfo = await client.getAccountDepositAddressV1({
+  currency: 'USDT',
+});
+console.log('USDT deposit address:', depositInfo.data.address);
+```
+
+---
+
+## Spot Orders
+
+All order management methods are private and require authentication.
+
+### Submit a Spot Order
+
+`submitSpotOrderV2()` places a new spot order. Supported order types are `limit`, `market`, `limit_maker`, and `ioc`.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function placeOrder() {
+  try {
+    // Limit buy order
+    const limitOrder = await client.submitSpotOrderV2({
+      symbol: 'BTC_USDT',
+      side: 'buy',
+      type: 'limit',
+      size: '0.001',    // Base asset quantity
+      price: '60000',   // Limit price in quote asset
+    });
+    console.log('Limit order ID:', limitOrder.data.order_id);
+
+    // Market sell order (size in base asset)
+    const marketOrder = await client.submitSpotOrderV2({
+      symbol: 'BTC_USDT',
+      side: 'sell',
+      type: 'market',
+      size: '0.0001',
+    });
+    console.log('Market order ID:', marketOrder.data.order_id);
+  } catch (e) {
+    console.error('Order error:', e);
+  }
+}
+
+placeOrder();
+```
+
+### Cancel a Spot Order
+
+`cancelSpotOrderV3()` cancels an open spot order by either `order_id` or `client_order_id`. One of the two must be provided.
+
+```typescript
+// Cancel by order ID
+const cancelResult = await client.cancelSpotOrderV3({
+  symbol: 'BTC_USDT',
+  order_id: '12345678',
+});
+console.log('Cancelled:', cancelResult.data.result);
+```
+
+### Query Open Orders
+
+`getSpotOpenOrdersV4()` returns all currently open spot or isolated-margin orders.
+
+```typescript
+const openOrders = await client.getSpotOpenOrdersV4({
+  orderMode: 'spot',   // 'spot' | 'iso_margin'
+  limit: 50,
+});
+console.log('Open orders:', JSON.stringify(openOrders.data, null, 2));
+```
+
+### Query Historic Orders
+
+`getSpotHistoricOrdersV4()` retrieves filled or cancelled orders within a specified time range.
+
+```typescript
+const history = await client.getSpotHistoricOrdersV4({
+  symbol: 'BTC_USDT',
+  orderMode: 'spot',
+  startTime: Date.now() - 7 * 24 * 60 * 60 * 1000, // 7 days ago (ms)
+  endTime: Date.now(),
+  limit: 100,
+});
+console.log('Order history:', JSON.stringify(history.data, null, 2));
+```
+
+<Note>
+  The v4 order query endpoints (`getSpotOpenOrdersV4`, `getSpotHistoricOrdersV4`, `getSpotAccountTradesV4`) use `POST` internally but behave like read operations — pass all filters as object properties.
+</Note>
+
+---
+
+## Margin Trading
+
+`RestClient` includes full support for BitMart's isolated margin trading. Margin orders use the same `SubmitSpotOrderV2Request` shape as spot orders.
+
+### Submit a Margin Order
+
+`submitMarginOrderV1()` places an order in your isolated margin account for the given symbol.
+
+```typescript
+const marginOrder = await client.submitMarginOrderV1({
+  symbol: 'BTC_USDT',
+  side: 'buy',
+  type: 'limit',
+  size: '0.001',
+  price: '60000',
+});
+console.log('Margin order ID:', marginOrder.data.order_id);
+```
+
+### Get Margin Account Details
+
+`getMarginAccountDetailsV1()` returns the isolated margin account details (equity, borrowed, interest) for all margin pairs or a specific symbol.
+
+```typescript
+// All margin pairs
+const allMargin = await client.getMarginAccountDetailsV1();
+console.log('All margin accounts:', JSON.stringify(allMargin.data.symbols, null, 2));
+
+// Specific pair
+const btcMargin = await client.getMarginAccountDetailsV1({ symbol: 'BTC_USDT' });
+console.log('BTC_USDT margin account:', JSON.stringify(btcMargin.data.symbols, null, 2));
+```
+
+### Borrow & Repay
+
+```typescript
+// Borrow funds
+const borrowResult = await client.marginBorrowV1({
+  symbol: 'BTC_USDT',
+  currency: 'USDT',
+  amount: '100',
+});
+console.log('Borrow ID:', borrowResult.data.borrow_id);
+
+// Repay borrowed funds
+const repayResult = await client.marginRepayV1({
+  symbol: 'BTC_USDT',
+  currency: 'USDT',
+  amount: '100',
+});
+console.log('Repay ID:', repayResult.data.repay_id);
+```
+
+---
+
+## Error Handling
+
+The SDK throws structured errors when an API call fails. Wrap calls in `try/catch` blocks to handle both network-level and API-level errors gracefully.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function safeOrderSubmit() {
+  try {
+    const result = await client.submitSpotOrderV2({
+      symbol: 'BTC_USDT',
+      side: 'buy',
+      type: 'limit',
+      size: '0.001',
+      price: '60000',
+    });
+    console.log('Order placed successfully:', result.data.order_id);
+  } catch (e: any) {
+    // API errors include a code and message from BitMart
+    if (e.body) {
+      console.error('API error code:', e.body.code);
+      console.error('API error message:', e.body.message);
+    } else {
+      // Network or unexpected error
+      console.error('Unexpected error:', e.message);
+    }
+  }
+}
+
+safeOrderSubmit();
+```
+
+<Warning>
+  BitMart uses a custom error code system. A successful HTTP 200 response can still carry a non-zero `code` field indicating a business-logic error (e.g. insufficient balance, invalid symbol). The SDK surfaces these as thrown errors when `parseExceptions` is `true` (the default).
+</Warning>
+
+---
+
+## Method Reference
+
+<CardGroup cols={2}>
+  <Card title="Market Data" icon="chart-line">
+    `getSpotTickersV3`, `getSpotTickerV3`, `getSpotHistoryKlineV3`, `getSpotLatestKlineV3`, `getSpotOrderBookDepthV3`, `getSpotRecentTrades`, `getSpotTradingPairDetailsV1`, `getSpotCurrenciesV1`
+  </Card>
+  <Card title="Account & Wallet" icon="wallet">
+    `getAccountBalancesV1`, `getSpotWalletBalanceV1`, `getAccountDepositAddressV1`, `getAccountWithdrawQuotaV1`, `submitWithdrawalV1`, `getDepositWithdrawHistoryV2`, `getBasicSpotFeeRateV1`
+  </Card>
+  <Card title="Spot Orders" icon="arrow-right-arrow-left">
+    `submitSpotOrderV2`, `cancelSpotOrderV3`, `cancelAllSpotOrders`, `getSpotOpenOrdersV4`, `getSpotHistoricOrdersV4`, `getSpotOrderByIdV4`, `getSpotAccountTradesV4`, `submitSpotBatchOrdersV4`, `cancelSpotBatchOrdersV4`
+  </Card>
+  <Card title="Margin Trading" icon="scale-balanced">
+    `submitMarginOrderV1`, `getMarginAccountDetailsV1`, `submitMarginAssetTransferV1`, `marginBorrowV1`, `marginRepayV1`, `getMarginBorrowRecordV1`, `getMarginRepayRecordV1`, `getMarginBorrowingRatesV1`
+  </Card>
+  <Card title="Algo Orders" icon="robot">
+    `submitSpotAlgoOrderV4`, `cancelSpotAlgoOrderV4`, `cancelAllSpotAlgoOrdersV4`, `getSpotAlgoOpenOrdersV4`, `getSpotAlgoHistoryOrdersV4`, `getSpotAlgoOrderByIdV4`
+  </Card>
+  <Card title="Earn" icon="piggy-bank">
+    `getEarnAccountPosition`, `getFlexibleSavingProducts`, `subscribeFlexibleSaving`, `redeemFlexibleSaving`, `getFixedSavingProducts`, `subscribeFixedSaving`, `redeemFixedSavingEarly`
+  </Card>
+</CardGroup>

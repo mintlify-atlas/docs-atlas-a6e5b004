@@ -1,0 +1,76 @@
+---
+title: "BitMart API SDK: Node.js & TypeScript Integration"
+sidebarTitle: "Introduction"
+description: "A complete Node.js and TypeScript SDK for the BitMart exchange REST API and WebSockets, with full type safety, ESM/CJS support, and browser compatibility."
+---
+
+The `bitmart-api` package is a professional, production-ready SDK for the [BitMart](https://www.bitmart.com) cryptocurrency exchange. It wraps every BitMart REST endpoint and WebSocket stream in a clean, promise-driven TypeScript interface — so you can build spot trading bots, futures strategies, and real-time dashboards without ever hand-rolling HTTP requests or WebSocket reconnection logic.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Install the SDK and make your first API call in under five minutes.
+  </Card>
+  <Card title="Authentication" icon="key" href="/authentication">
+    Learn how API keys, secrets, and the memo field work together for signed requests.
+  </Card>
+  <Card title="REST Client" icon="server" href="/rest/rest-client">
+    Full reference for the `RestClient` and `FuturesClientV2` classes.
+  </Card>
+  <Card title="WebSockets" icon="wifi" href="/websockets/overview">
+    Subscribe to real-time spot and futures streams with automatic reconnection.
+  </Card>
+</CardGroup>
+
+## Main Exported Classes
+
+The SDK exports three top-level client classes, each targeting a different part of the BitMart platform:
+
+| Class | Purpose |
+|---|---|
+| `RestClient` | Spot trading, margin, and general account operations (V1 API domain) |
+| `FuturesClientV2` | USD-M futures trading (V2 API domain, includes demo trading support) |
+| `WebsocketClient` | Unified WebSocket client for public and private spot and futures streams |
+
+```typescript
+import { RestClient, FuturesClientV2, WebsocketClient } from 'bitmart-api';
+```
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Full TypeScript Support" icon="code">
+    Strongly typed request parameters and response shapes for every endpoint. Your IDE will autocomplete arguments and catch mistakes at compile time.
+  </Card>
+  <Card title="ESM & CommonJS" icon="cubes">
+    The published npm package ships both ESM and CJS builds. Node.js automatically picks the correct entry point for your project.
+  </Card>
+  <Card title="Browser-Friendly Signing" icon="globe">
+    HMAC-SHA256 request signing uses the Web Crypto API, so the SDK works in browser and edge-runtime environments without Node.js-specific crypto modules.
+  </Card>
+  <Card title="Auto-Reconnecting WebSockets" icon="rotate">
+    The `WebsocketClient` maintains persistent connections with built-in heartbeats. If a connection drops it reconnects and resubscribes automatically, emitting a `reconnected` event when ready.
+  </Card>
+  <Card title="Demo / Simulated Trading" icon="flask">
+    Pass `demoTrading: true` to `FuturesClientV2` or `WebsocketClient` to route requests to BitMart's simulated environment — no real funds involved.
+  </Card>
+  <Card title="Custom HMAC Signing" icon="bolt">
+    Inject your own `customSignMessageFn` to use Node.js's native `createHmac` for higher-throughput signing in latency-sensitive applications.
+  </Card>
+</CardGroup>
+
+## API Domains
+
+| Client | Base URL |
+|---|---|
+| `RestClient` (spot) | `https://api-cloud.bitmart.com` |
+| `FuturesClientV2` (live) | `https://api-cloud-v2.bitmart.com` |
+| `FuturesClientV2` (demo) | `https://demo-api-cloud-v2.bitmart.com` |
+
+## Related Links
+
+- [BitMart Spot API Documentation](https://developer-pro.bitmart.com/en/spot/#change-log)
+- [BitMart Futures API Documentation](https://developer-pro.bitmart.com/en/futures/)
+- [npm package — bitmart-api](https://www.npmjs.com/package/bitmart-api)
+- [GitHub Repository](https://github.com/tiagosiebler/bitmart-api)
+- [Endpoint → Function Mapping](https://github.com/tiagosiebler/bitmart-api/blob/master/docs/endpointFunctionList.md)
+- [Community: Node.js Algo Traders on Telegram](https://t.me/nodetraders)

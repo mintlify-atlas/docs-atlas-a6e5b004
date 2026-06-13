@@ -1,0 +1,207 @@
+---
+title: "Configure the BitMart API SDK REST & WS Clients"
+sidebarTitle: "Client Options"
+description: "Full reference for every configurable option in RestClient, FuturesClientV2, and WebsocketClient — credentials, timeouts, keep-alive, and more."
+---
+
+The `bitmart-api` SDK exposes two sets of configuration interfaces: `RestClientOptions` for the REST clients (`RestClient` and `FuturesClientV2`) and `WSClientConfigurableOptions` for the `WebsocketClient`. Both interfaces share a common subset of authentication fields, and each adds options specific to its transport layer. You pass these options as a plain object to the client constructor — every field is optional, so you only need to include what you want to override.
+
+## REST Client Options
+
+These options apply to both `RestClient` (spot & margin) and `FuturesClientV2` (USD-M futures). Pass them as the first argument to the constructor.
+
+```typescript
+import { RestClient, FuturesClientV2 } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+  recvWindow: 10000,
+  strictParamValidation: false,
+  parseExceptions: true,
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+});
+
+const futuresClient = new FuturesClientV2({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+  demoTrading: true,
+});
+```
+
+<ParamField body="apiKey" type="string">
+  Your BitMart API key. Required for all authenticated (private) endpoints. Create API keys in your BitMart account dashboard.
+</ParamField>
+
+<ParamField body="apiSecret" type="string">
+  Your BitMart API secret. Used together with `apiKey` to sign requests via HMAC-SHA256.
+</ParamField>
+
+<ParamField body="apiMemo" type="string">
+  The memo (label) you chose when creating your API key. This value is included in the request signature and must match what is stored on BitMart's servers.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  The default receive window in milliseconds for signed API calls. Controls how long a signed request remains valid after it is issued. If a method call also supplies `recvWindow`, the per-call value takes precedence over this global default. Equivalent to BitMart's `X-BM-TIMESTAMP` tolerance window.
+</ParamField>
+
+<ParamField body="strictParamValidation" type="boolean" default="false">
+  When `true`, the SDK will throw an error if any parameter passed to a method is `undefined`. Useful during development to catch typos and missing fields early. Defaults to `false` (undefined params are silently dropped).
+</ParamField>
+
+<ParamField body="baseUrl" type="string">
+  Optionally override the API base URL for every request, e.g. `'https://api.bitmart.com'`. Useful when routing traffic through a proxy or a corporate gateway. Takes precedence over both the `demoTrading` flag and the automatic client-type URL selection.
+</ParamField>
+
+<ParamField body="demoTrading" type="boolean" default="false">
+  When `true`, the client routes all requests to BitMart's simulated trading environment. Only effective for `FuturesClientV2` — the demo URL used is `https://demo-api-cloud-v2.bitmart.com`. Spot (`RestClient`) and V1 futures continue using production endpoints regardless of this flag.
+</ParamField>
+
+<ParamField body="parseExceptions" type="boolean" default="true">
+  When `true` (the default), the SDK post-processes failed requests and re-throws a structured error object. Set to `false` to receive raw Axios errors if you prefer to handle HTTP-level errors yourself.
+</ParamField>
+
+<ParamField body="customSignMessageFn" type="(message: string, secret: string) => Promise<string>">
+  Inject a custom HMAC signing function. By default, the SDK uses the Web Crypto API for browser compatibility. In Node.js you can supply `crypto.createHmac` for a measurable throughput improvement on high-frequency workloads. See [Custom Signing](/configuration/custom-signing) for a complete example.
+</ParamField>
+
+<ParamField body="keepAlive" type="boolean">
+  Enable HTTP keep-alive on the underlying Axios HTTP agent. When `true`, TCP connections are reused across requests rather than torn down and re-established each time, reducing latency for bots that send many consecutive requests.
+</ParamField>
+
+<ParamField body="keepAliveMsecs" type="number" default="1000">
+  When HTTP keep-alive is enabled, this sets the interval (in milliseconds) at which TCP keep-alive packets are sent over idle sockets. Only relevant when `keepAlive` is `true`. Defaults to `1000` ms (inherited from Node.js's https agent default).
+</ParamField>
+
+---
+
+## WebSocket Client Options
+
+These options apply to the `WebsocketClient`. Authentication fields are identical to the REST options. Additional options control heartbeat timing and reconnection behaviour.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const wsClient = new WebsocketClient({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+  recvWindow: 5000,
+  pingInterval: 10000,
+  pongTimeout: 5000,
+  reconnectTimeout: 500,
+  demoTrading: false,
+  wsOptions: {
+    agent: undefined, // optional custom agent
+  },
+});
+```
+
+<ParamField body="apiKey" type="string">
+  Your BitMart API key. Required to subscribe to private WebSocket channels (account orders, positions, balances).
+</ParamField>
+
+<ParamField body="apiSecret" type="string">
+  Your BitMart API secret. Used to sign the WebSocket authentication message.
+</ParamField>
+
+<ParamField body="apiMemo" type="string">
+  The memo associated with your API key. Included in the WebSocket authentication payload.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  The receive window (in milliseconds) included in the WebSocket authentication signature. For example, `5000` means the authentication message is valid for 5 seconds from its timestamp. Defaults to the SDK's internal default if not set.
+</ParamField>
+
+<ParamField body="pingInterval" type="number">
+  How often (in milliseconds) the client checks whether each WebSocket connection is still alive by sending a ping. Decrease this value if you need faster detection of dropped connections.
+</ParamField>
+
+<ParamField body="pongTimeout" type="number">
+  How long (in milliseconds) the client waits for a pong response after sending a ping before treating the connection as dead and scheduling a reconnect.
+</ParamField>
+
+<ParamField body="reconnectTimeout" type="number">
+  Delay in milliseconds before the client attempts to respawn a dropped WebSocket connection. After a disconnect is detected, the client waits this long before opening a new connection and resubscribing to all previous topics.
+</ParamField>
+
+<ParamField body="wsUrl" type="string">
+  Optionally override the WebSocket endpoint URL. Useful for proxies, internal test environments, or routing to a specific regional endpoint.
+</ParamField>
+
+<ParamField body="demoTrading" type="boolean" default="false">
+  When `true`, the WebSocket client connects to BitMart's simulated futures trading environment at `wss://openapi-wsdemo-v2.bitmart.com`. Only applies to V2 Futures WebSocket streams — spot streams always use the production endpoint.
+</ParamField>
+
+<ParamField body="customSignMessageFn" type="(message: string, secret: string) => Promise<string>">
+  Inject a custom HMAC signing function for WebSocket authentication messages, identical in signature to the REST option. See [Custom Signing](/configuration/custom-signing) for details.
+</ParamField>
+
+<ParamField body="wsOptions" type="object">
+  Pass additional options directly to the underlying `WebSocket` constructor. Accepts `protocols` (string array), `agent`, and any field from `WebSocket.ClientOptions` or Node.js `ClientRequestArgs`. Useful for routing WebSocket traffic through an HTTP/HTTPS proxy agent.
+
+  ```typescript
+  import { HttpsProxyAgent } from 'https-proxy-agent';
+
+  const wsClient = new WebsocketClient({
+    apiKey: process.env.API_KEY,
+    apiSecret: process.env.API_SECRET,
+    apiMemo: process.env.API_MEMO,
+    wsOptions: {
+      agent: new HttpsProxyAgent('http://proxy.example.com:8080'),
+    },
+  });
+  ```
+</ParamField>
+
+---
+
+## Complete Configuration Example
+
+The example below shows a fully configured setup for a production bot running both a spot REST client and a futures WebSocket client:
+
+```typescript
+import { createHmac } from 'crypto';
+import { RestClient, FuturesClientV2, WebsocketClient } from 'bitmart-api';
+
+// Faster Node.js HMAC — see /configuration/custom-signing
+const customSignMessageFn = async (message: string, secret: string) =>
+  createHmac('sha256', secret).update(message).digest('hex');
+
+// Spot REST client (production)
+const spotClient = new RestClient({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+  recvWindow: 10000,
+  strictParamValidation: false,
+  parseExceptions: true,
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  customSignMessageFn,
+});
+
+// Futures REST client (demo environment)
+const futuresClient = new FuturesClientV2({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+  demoTrading: true,
+  customSignMessageFn,
+});
+
+// WebSocket client for live private streams
+const wsClient = new WebsocketClient({
+  apiKey: process.env.API_KEY,
+  apiSecret: process.env.API_SECRET,
+  apiMemo: process.env.API_MEMO,
+  recvWindow: 5000,
+  pingInterval: 10000,
+  pongTimeout: 5000,
+  reconnectTimeout: 500,
+  customSignMessageFn,
+});
+```

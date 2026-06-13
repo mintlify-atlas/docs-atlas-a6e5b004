@@ -1,0 +1,777 @@
+---
+title: "Earn Products REST API Reference (Flexible & Fixed)"
+sidebarTitle: "Earn"
+description: "Manage BitMart Earn products via REST: query, subscribe, and redeem flexible and fixed savings with auto-reinvest and batch auto-saving controls."
+---
+
+The BitMart Earn API lets you programmatically interact with the full savings lifecycle — browse available flexible and fixed-term products, open and close positions, query earning history, and configure automated reinvestment strategies. All endpoints require a valid API key with **Withdraw** or **Account** permissions and are accessed through the `RestClient`.
+
+<Note>
+  All Earn endpoints are authenticated. Instantiate `RestClient` with your `apiKey`, `apiSecret`, and `apiMemo` before calling any method on this page.
+</Note>
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: 'YOUR_API_KEY',
+  apiSecret: 'YOUR_API_SECRET',
+  apiMemo: 'YOUR_API_MEMO',
+});
+```
+
+---
+
+## Account Overview
+
+### `getEarnAccountPosition()`
+
+Returns a summary of all current earn positions across both flexible and fixed products, including cumulative profit and previous-period earnings per coin.
+
+**Signature**
+
+```typescript
+getEarnAccountPosition(): Promise<APIResponse<EarnAccountPosition[]>>
+```
+
+**Response type**
+
+```typescript
+interface EarnAccountPosition {
+  coinName: string;       // e.g. "USDT"
+  totalUserSum: string;   // total subscribed amount
+  totalProfit: string;    // total earned profit
+  previousProfit: string; // previous period profit
+}
+```
+
+**Example**
+
+```typescript
+const positions = await client.getEarnAccountPosition();
+console.log(positions.data);
+// [{ coinName: 'USDT', totalUserSum: '500', totalProfit: '1.23', previousProfit: '0.41' }]
+```
+
+---
+
+## Flexible Savings
+
+Flexible savings products offer variable APY with no lock-up period. You can subscribe and redeem at any time.
+
+### `getFlexibleSavingProducts(params)`
+
+Lists all available flexible saving products, optionally filtered by coin name. Results are paginated.
+
+**Signature**
+
+```typescript
+getFlexibleSavingProducts(
+  params: EarnFlexibleProductListRequest,
+): Promise<APIResponse<EarnPagedList<EarnFlexibleProduct>>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFlexibleProductListRequest {
+  coinName?: string;   // filter by coin, e.g. "USDT"
+  currentPage: number; // 1-based page number
+  sizePage: number;    // results per page (max 50)
+}
+```
+
+**Response type**
+
+```typescript
+interface EarnFlexibleProduct {
+  productId: string;
+  coinName: string;
+  productTag: string;
+  apy: string;
+  minPurchaseAmount: string;
+  maxPurchaseAmount: string;
+  additionalApy: string;
+  hasTierRate: boolean;
+  tierRate?: EarnSavingTierRate[]; // present when hasTierRate is true
+}
+
+interface EarnSavingTierRate {
+  minPurchaseAmount: string;
+  maxPurchaseAmount: string;
+  apy: string;
+}
+
+interface EarnPagedList<T> {
+  total: number;
+  list: T[];
+}
+```
+
+**Example**
+
+```typescript
+const products = await client.getFlexibleSavingProducts({
+  coinName: 'USDT',
+  currentPage: 1,
+  sizePage: 10,
+});
+console.log(products.data.list);
+```
+
+---
+
+### `subscribeFlexibleSaving(params)`
+
+Opens a new flexible saving position for a given product ID and amount. The `requestNo` must be a unique 20-digit numeric string per request to ensure idempotency.
+
+**Signature**
+
+```typescript
+subscribeFlexibleSaving(
+  params: EarnFlexibleSubscribeRequest,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFlexibleSubscribeRequest {
+  productId: string;  // product ID from getFlexibleSavingProducts
+  amount: string;     // amount to subscribe, e.g. "100"
+  requestNo: string;  // unique 20-digit numeric string
+}
+```
+
+**Example**
+
+```typescript
+await client.subscribeFlexibleSaving({
+  productId: 'USDT_FLEXIBLE_001',
+  amount: '100',
+  requestNo: '12345678901234567890',
+});
+```
+
+---
+
+### `redeemFlexibleSaving(params)`
+
+Redeems (withdraws) a specified amount from an existing flexible saving position identified by `earnId`.
+
+**Signature**
+
+```typescript
+redeemFlexibleSaving(
+  params: EarnFlexibleRedeemRequest,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFlexibleRedeemRequest {
+  earnId: string;    // position ID from getFlexibleSavingPositions
+  amount: string;    // amount to redeem
+  requestNo: string; // unique 20-digit numeric string
+}
+```
+
+**Example**
+
+```typescript
+await client.redeemFlexibleSaving({
+  earnId: 'earn_abc123',
+  amount: '50',
+  requestNo: '98765432109876543210',
+});
+```
+
+---
+
+### `getFlexibleSavingPositions(params)`
+
+Returns a paginated list of your active flexible saving positions, optionally filtered by coin or product ID.
+
+**Signature**
+
+```typescript
+getFlexibleSavingPositions(
+  params: EarnFlexiblePositionsRequest,
+): Promise<APIResponse<EarnPagedList<EarnFlexiblePosition>>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFlexiblePositionsRequest {
+  coinName?: string;  // optional coin filter
+  productId?: string; // optional product filter
+  currentPage: number;
+  sizePage: number;
+}
+```
+
+**Response type**
+
+```typescript
+interface EarnFlexiblePosition {
+  earnId: string;
+  productId: string;
+  coinId: number;
+  coinName: string;
+  productTag: string;
+  apy: string;
+  totalProfit: string;
+  autoSubscribe: boolean;
+  additionalApy: string;
+  hasTierRate: boolean;
+  tierRate?: EarnSavingTierRate[];
+}
+```
+
+**Example**
+
+```typescript
+const positions = await client.getFlexibleSavingPositions({
+  coinName: 'USDT',
+  currentPage: 1,
+  sizePage: 20,
+});
+console.log(positions.data.list);
+```
+
+---
+
+### `getFlexibleSavingHistory(params)`
+
+Retrieves the transaction history for flexible savings. Filter by record type (`subscribe`, `redeem`, or `interest`) and optional date range.
+
+**Signature**
+
+```typescript
+getFlexibleSavingHistory(
+  params: EarnFlexibleHistoryRequest,
+): Promise<APIResponse<EarnPagedList<EarnFlexibleHistoryRecord>>>
+```
+
+**Request type**
+
+```typescript
+type EarnFlexibleRecordType = 'subscribe' | 'redeem' | 'interest';
+
+interface EarnFlexibleHistoryRequest {
+  type: EarnFlexibleRecordType;
+  startTime?: number; // Unix ms
+  endTime?: number;   // Unix ms
+  coinName?: string;
+  currentPage: number;
+  sizePage: number;
+}
+```
+
+**Response type**
+
+```typescript
+interface EarnFlexibleHistoryRecord {
+  type: string;
+  recordId: string;
+  productId: string;
+  coinName: string;
+  amount: string;
+  productTag: string;
+  time: number;
+  subscribeType: string;
+  requestNo: string;
+  status: string;
+}
+```
+
+**Example**
+
+```typescript
+const history = await client.getFlexibleSavingHistory({
+  type: 'interest',
+  startTime: Date.now() - 7 * 24 * 60 * 60 * 1000, // last 7 days
+  currentPage: 1,
+  sizePage: 50,
+});
+console.log(history.data.list);
+```
+
+---
+
+### `setFlexibleSavingAutoSubscribe(params)`
+
+Enables or disables the auto-subscribe feature for a specific flexible saving product. When enabled, interest payments are automatically reinvested.
+
+**Signature**
+
+```typescript
+setFlexibleSavingAutoSubscribe(
+  params: EarnFlexibleAutoSubscribeOperateRequest,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+type EarnAutoSavingBatchAction = 'open' | 'close';
+
+interface EarnFlexibleAutoSubscribeOperateRequest {
+  productId: string;
+  autoSubscribe: EarnAutoSavingBatchAction; // 'open' or 'close'
+}
+```
+
+**Example**
+
+```typescript
+// Enable auto-subscribe for a product
+await client.setFlexibleSavingAutoSubscribe({
+  productId: 'USDT_FLEXIBLE_001',
+  autoSubscribe: 'open',
+});
+```
+
+---
+
+### `getFlexibleSavingAutoSubscribeStatus(params)`
+
+Queries whether auto-subscribe is currently enabled for a given flexible saving product.
+
+**Signature**
+
+```typescript
+getFlexibleSavingAutoSubscribeStatus(
+  params: EarnFlexibleAutoSubscribeStatusRequest,
+): Promise<APIResponse<EarnFlexibleAutoSubscribeStatus>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFlexibleAutoSubscribeStatusRequest {
+  productId: string;
+}
+```
+
+**Response type**
+
+```typescript
+interface EarnFlexibleAutoSubscribeStatus {
+  subscribeStatus: 'ON' | 'OFF';
+}
+```
+
+**Example**
+
+```typescript
+const status = await client.getFlexibleSavingAutoSubscribeStatus({
+  productId: 'USDT_FLEXIBLE_001',
+});
+console.log(status.data.subscribeStatus); // 'ON' or 'OFF'
+```
+
+---
+
+## Fixed Savings
+
+Fixed-term savings products offer a higher, locked APY for a defined number of days. Early redemption is available but may forfeit accrued interest.
+
+### `getFixedSavingProducts(params)`
+
+Lists all available fixed-term saving products, with lockup period and APY details.
+
+**Signature**
+
+```typescript
+getFixedSavingProducts(
+  params: EarnFixedProductListRequest,
+): Promise<APIResponse<EarnPagedList<EarnFixedProduct>>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFixedProductListRequest {
+  coinName?: string;
+  currentPage: number;
+  sizePage: number;
+}
+```
+
+**Response type**
+
+```typescript
+interface EarnFixedProduct {
+  productId: string;
+  coinName: string;
+  productTag: string;
+  lockDay: number;        // lock-up period in days
+  apy: string;
+  minPurchaseAmount: string;
+  maxPurchaseAmount: string;
+  additionalApy: string;
+}
+```
+
+**Example**
+
+```typescript
+const fixedProducts = await client.getFixedSavingProducts({
+  coinName: 'BTC',
+  currentPage: 1,
+  sizePage: 10,
+});
+console.log(fixedProducts.data.list);
+```
+
+---
+
+### `subscribeFixedSaving(params)`
+
+Subscribes to a fixed-term saving product. You must specify the post-maturity auto-subscribe behaviour at subscription time.
+
+**Signature**
+
+```typescript
+subscribeFixedSaving(
+  params: EarnFixedSubscribeRequest,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+type EarnFixedAutoSubscribeAction =
+  | 'OFF'               // do not reinvest at maturity
+  | 'REINVEST_FLEXIBLE' // reinvest into flexible savings
+  | 'REINVEST_FIXED';   // reinvest into the same fixed product
+
+interface EarnFixedSubscribeRequest {
+  productId: string;
+  amount: string;
+  requestNo: string;                        // unique 20-digit numeric string
+  autoSubscribe: EarnFixedAutoSubscribeAction;
+}
+```
+
+**Example**
+
+```typescript
+await client.subscribeFixedSaving({
+  productId: 'BTC_FIXED_30D',
+  amount: '0.01',
+  requestNo: '11223344556677889900',
+  autoSubscribe: 'REINVEST_FIXED',
+});
+```
+
+---
+
+### `getFixedSavingPositions(params)`
+
+Returns all active fixed-term positions, including maturity date and estimated interest.
+
+**Signature**
+
+```typescript
+getFixedSavingPositions(
+  params: EarnFixedPositionsRequest,
+): Promise<APIResponse<EarnPagedList<EarnFixedPosition>>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFixedPositionsRequest {
+  coinName?: string;
+  productId?: string;
+  currentPage: number;
+  sizePage: number;
+}
+```
+
+**Response type**
+
+```typescript
+interface EarnFixedPosition {
+  earnId: string;
+  productId: string;
+  coinId: number;
+  coinName: string;
+  amount: string;
+  estimatedInterest: string;
+  expiredDate: number;       // Unix ms timestamp of maturity
+  productTag: string;
+  apy: string;
+  lockDay: number;
+  totalProfit: string;
+  subscribeType: string;
+  additionalApy: string;
+}
+```
+
+**Example**
+
+```typescript
+const fixedPositions = await client.getFixedSavingPositions({
+  currentPage: 1,
+  sizePage: 20,
+});
+fixedPositions.data.list.forEach((pos) => {
+  console.log(`${pos.coinName} matures at`, new Date(pos.expiredDate));
+});
+```
+
+---
+
+### `getFixedSavingHistory(params)`
+
+Returns the transaction history for fixed savings: subscriptions, redemptions, and interest payments.
+
+**Signature**
+
+```typescript
+getFixedSavingHistory(
+  params: EarnFixedHistoryRequest,
+): Promise<APIResponse<EarnPagedList<EarnFixedHistoryRecord>>>
+```
+
+**Request type**
+
+```typescript
+type EarnFixedRecordType = 'subscribe' | 'redeem' | 'interest';
+
+interface EarnFixedHistoryRequest {
+  type: EarnFixedRecordType;
+  startTime?: number;
+  endTime?: number;
+  coinName?: string;
+  currentPage: number;
+  sizePage: number;
+}
+```
+
+**Response type**
+
+```typescript
+interface EarnFixedHistoryRecord {
+  type: string;
+  recordId: string;
+  productId: string;
+  lockDay: number;
+  coinName: string;
+  amount: string;
+  productTag: string;
+  time: number;
+  subscribeType: string;
+  requestNo: string;
+  status: string;
+}
+```
+
+**Example**
+
+```typescript
+const fixedHistory = await client.getFixedSavingHistory({
+  type: 'subscribe',
+  currentPage: 1,
+  sizePage: 50,
+});
+console.log(fixedHistory.data.list);
+```
+
+---
+
+### `redeemFixedSavingEarly(params)`
+
+Redeems a fixed-term position before its maturity date. Early redemption typically forfeits accrued interest — check the product terms before calling.
+
+<Warning>
+  Early redemption may result in loss of accrued interest. Confirm the product's early redemption policy before submitting.
+</Warning>
+
+**Signature**
+
+```typescript
+redeemFixedSavingEarly(
+  params: EarnFixedEarlyRedeemRequest,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFixedEarlyRedeemRequest {
+  earnId: string;    // position ID from getFixedSavingPositions
+  requestNo: string; // unique 20-digit numeric string
+}
+```
+
+**Example**
+
+```typescript
+await client.redeemFixedSavingEarly({
+  earnId: 'earn_xyz789',
+  requestNo: '20000000000000000001',
+});
+```
+
+---
+
+### `updateFixedSavingAutoReinvest(params)`
+
+Updates the auto-reinvest behaviour for an existing fixed-term position. You can change this setting any time before maturity.
+
+**Signature**
+
+```typescript
+updateFixedSavingAutoReinvest(
+  params: EarnFixedAutoReinvestUpdateRequest,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface EarnFixedAutoReinvestUpdateRequest {
+  earnId: string;
+  autoSubscribe: EarnFixedAutoSubscribeAction; // 'OFF' | 'REINVEST_FLEXIBLE' | 'REINVEST_FIXED'
+}
+```
+
+**Example**
+
+```typescript
+// Switch from fixed reinvestment to flexible after maturity
+await client.updateFixedSavingAutoReinvest({
+  earnId: 'earn_xyz789',
+  autoSubscribe: 'REINVEST_FLEXIBLE',
+});
+```
+
+---
+
+## Auto-Saving Batch
+
+Batch auto-saving controls apply to all flexible saving products on your account simultaneously, providing a quick global toggle.
+
+### `setAutoSavingBatch(params)`
+
+Globally enables or disables automatic interest reinvestment across **all** flexible saving products on the account.
+
+**Signature**
+
+```typescript
+setAutoSavingBatch(
+  params: EarnAutoSavingBatchOperateRequest,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+type EarnAutoSavingBatchAction = 'open' | 'close';
+
+interface EarnAutoSavingBatchOperateRequest {
+  autoSubscribe: EarnAutoSavingBatchAction;
+}
+```
+
+**Example**
+
+<CodeGroup>
+```typescript Enable All
+await client.setAutoSavingBatch({ autoSubscribe: 'open' });
+```
+
+```typescript Disable All
+await client.setAutoSavingBatch({ autoSubscribe: 'close' });
+```
+</CodeGroup>
+
+---
+
+### `getAutoSavingBatchStatus()`
+
+Retrieves the current global batch auto-saving status for the account.
+
+**Signature**
+
+```typescript
+getAutoSavingBatchStatus(): Promise<APIResponse<EarnAutoSavingBatchStatus>>
+```
+
+**Response type**
+
+```typescript
+interface EarnAutoSavingBatchStatus {
+  batchSubscribeStatus: 'ON' | 'OFF';
+}
+```
+
+**Example**
+
+```typescript
+const batchStatus = await client.getAutoSavingBatchStatus();
+console.log(batchStatus.data.batchSubscribeStatus); // 'ON' or 'OFF'
+```
+
+---
+
+## Complete Flexible Savings Workflow
+
+The following example demonstrates the full lifecycle: discover products, subscribe, check a position, and configure auto-reinvestment.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function flexibleSavingsWorkflow() {
+  // 1. Browse available products
+  const { data: productList } = await client.getFlexibleSavingProducts({
+    coinName: 'USDT',
+    currentPage: 1,
+    sizePage: 5,
+  });
+  const product = productList.list[0];
+  console.log(`Best USDT flexible APY: ${product.apy}%`);
+
+  // 2. Subscribe
+  await client.subscribeFlexibleSaving({
+    productId: product.productId,
+    amount: '200',
+    requestNo: String(Date.now()).padEnd(20, '0'),
+  });
+
+  // 3. Check position
+  const { data: positions } = await client.getFlexibleSavingPositions({
+    productId: product.productId,
+    currentPage: 1,
+    sizePage: 1,
+  });
+  const position = positions.list[0];
+  console.log(`Earning position: ${position.earnId}, profit: ${position.totalProfit}`);
+
+  // 4. Enable auto-subscribe for this product
+  await client.setFlexibleSavingAutoSubscribe({
+    productId: product.productId,
+    autoSubscribe: 'open',
+  });
+
+  // 5. Verify status
+  const { data: status } = await client.getFlexibleSavingAutoSubscribeStatus({
+    productId: product.productId,
+  });
+  console.log('Auto-subscribe:', status.subscribeStatus);
+}
+
+flexibleSavingsWorkflow();
+```

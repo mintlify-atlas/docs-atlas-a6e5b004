@@ -1,0 +1,613 @@
+---
+title: "Futures Account & Asset REST API Reference"
+sidebarTitle: "Account"
+description: "Manage BitMart futures account balances, fee rates, auto-repayment, collateral logs, fund transfers, and sub-account operations using FuturesClientV2."
+---
+
+The account endpoints on this page allow you to inspect balances, retrieve fee information, manage cross-collateral settings, and move funds between your spot and futures wallets — as well as between main and sub-accounts. All methods on this page require authentication (KEYED or SIGNED).
+
+## Setup
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+```
+
+---
+
+## Account Balances
+
+### `getFuturesAccountAssets()`
+
+Returns all asset balances held in your futures account, including available balance, frozen amounts, unrealised PnL, and position deposits.
+
+**Signature**
+```typescript
+getFuturesAccountAssets(): Promise<APIResponse<FuturesAccountAsset[]>>
+```
+
+**Response fields (`FuturesAccountAsset`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `currency` | string | Asset currency (e.g. `USDT`) |
+| `position_deposit` | string | Balance locked as position margin |
+| `frozen_balance` | string | Balance frozen in open orders |
+| `available_balance` | string | Available balance for new orders |
+| `equity` | string | Total account equity |
+| `unrealized` | string | Unrealised PnL across all positions |
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const balances = await client.getFuturesAccountAssets();
+
+for (const asset of balances.data) {
+  console.log(`${asset.currency}: available=${asset.available_balance}, equity=${asset.equity}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Trade Fees
+
+### `getFuturesTradeFeeRate(params)`
+
+Returns the personalised maker and taker fee rates for a specific futures contract.
+
+**Signature**
+```typescript
+getFuturesTradeFeeRate(params: {
+  symbol: string;
+}): Promise<APIResponse<{
+  symbol: string;
+  taker_fee_rate: string;
+  maker_fee_rate: string;
+}>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const fees = await client.getFuturesTradeFeeRate({ symbol: 'BTCUSDT' });
+console.log(`Maker: ${fees.data.maker_fee_rate} | Taker: ${fees.data.taker_fee_rate}`);
+```
+</CodeGroup>
+
+---
+
+## Auto Repayment
+
+### `getFuturesAutoRepayment(params?)`
+
+Queries auto-repayment records. Defaults to the last 7 days when no time range is specified. Returns a maximum of 20 records per request.
+
+**Signature**
+```typescript
+getFuturesAutoRepayment(
+  params?: FuturesAutoRepaymentRequest,
+): Promise<FuturesAutoRepaymentApiResponse>
+```
+
+<ParamField query="start_time" type="number">
+  Start time as Unix timestamp (ms). Defaults to 7 days ago.
+</ParamField>
+
+<ParamField query="end_time" type="number">
+  End time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="page" type="number">
+  Page number for pagination.
+</ParamField>
+
+<ParamField query="size" type="number">
+  Records per page (max 20).
+</ParamField>
+
+<ParamField query="from_coin_code" type="string">
+  Filter by repayment source currency.
+</ParamField>
+
+<ParamField query="type" type="string">
+  Repayment type filter.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const repayments = await client.getFuturesAutoRepayment({ page: 1, size: 20 });
+
+console.log(`Total records: ${repayments.data.total}`);
+for (const record of repayments.data.list) {
+  console.log(`${record.time}: Repaid ${record.from_amount} ${record.from_coin_code} → ${record.to_amount} ${record.to_coin_code}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Cross Collateral
+
+### `getFuturesCrossCollateralInterestLog(params?)`
+
+Queries cross-margin interest accrual logs. Defaults to the last 7 days; maximum interval is 90 days. Returns at most 20 records per request.
+
+**Signature**
+```typescript
+getFuturesCrossCollateralInterestLog(
+  params?: FuturesCrossCollateralInterestLogRequest,
+): Promise<FuturesCrossCollateralInterestLogApiResponse>
+```
+
+<ParamField query="start_time" type="number">
+  Start time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="end_time" type="number">
+  End time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="page" type="number">
+  Page number for pagination.
+</ParamField>
+
+<ParamField query="size" type="number">
+  Records per page (max 20).
+</ParamField>
+
+<ParamField query="coin_code" type="string">
+  Filter by currency (e.g. `USDT`).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const interestLog = await client.getFuturesCrossCollateralInterestLog({
+  coin_code: 'USDT',
+  page: 1,
+  size: 20,
+});
+
+console.log(`Total entries: ${interestLog.data.total}`);
+for (const entry of interestLog.data.items) {
+  console.log(`Interest: ${entry.interest} ${entry.coin_code} @ rate ${entry.rate}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Fund Transfers
+
+### `getFuturesTransfers(params)`
+
+Returns transfer history between your spot and futures wallets.
+
+**Signature**
+```typescript
+getFuturesTransfers(params: FuturesAccountTransfersRequest): Promise<
+  APIResponse<{ records: FuturesAccountTransfer[] }>
+>
+```
+
+<ParamField query="page" type="number" required>
+  Page number (1-indexed).
+</ParamField>
+
+<ParamField query="limit" type="number" required>
+  Number of records per page.
+</ParamField>
+
+<ParamField query="currency" type="string">
+  Filter by currency (e.g. `USDT`).
+</ParamField>
+
+<ParamField query="time_start" type="number">
+  Start time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="time_end" type="number">
+  End time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="recvWindow" type="number">
+  Request validity window in milliseconds.
+</ParamField>
+
+**Response fields (`FuturesAccountTransfer`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `transfer_id` | string | Unique transfer ID |
+| `currency` | string | Transferred currency |
+| `amount` | string | Transfer amount |
+| `type` | string | `spot_to_contract` or `contract_to_spot` |
+| `state` | string | `PROCESSING`, `FINISHED`, or `FAILED` |
+| `timestamp` | number | Transfer time (Unix ms) |
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const transfers = await client.getFuturesTransfers({
+  currency: 'USDT',
+  page: 1,
+  limit: 20,
+});
+
+for (const record of transfers.data.records) {
+  console.log(`${record.type}: ${record.amount} ${record.currency} — ${record.state}`);
+}
+```
+</CodeGroup>
+
+---
+
+### `submitFuturesTransfer(params)`
+
+Moves funds between your spot wallet and futures wallet. Only **USDT** is currently supported. Transfer amount must be between `0.01` and `10,000,000,000`.
+
+**Signature**
+```typescript
+submitFuturesTransfer(
+  params: SubmitFuturesTransferRequest,
+): Promise<APIResponse<FuturesTransferSubmitResult>>
+```
+
+<ParamField body="currency" type="string" required>
+  Currency to transfer. Only `USDT` is supported.
+</ParamField>
+
+<ParamField body="amount" type="string" required>
+  Amount to transfer. Allowed range: `0.01` to `10,000,000,000`.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  Transfer direction:
+  - `spot_to_contract` — Move funds from spot to futures
+  - `contract_to_spot` — Move funds from futures to spot
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds. Allowed range: `(0, 60000]`. Default: `5000`.
+</ParamField>
+
+<CodeGroup>
+```typescript Spot → Futures
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const result = await client.submitFuturesTransfer({
+  currency: 'USDT',
+  amount: '500',
+  type: 'spot_to_contract',
+});
+
+console.log(`Transferred: ${result.data.amount} ${result.data.currency}`);
+```
+
+```typescript Futures → Spot
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const result = await client.submitFuturesTransfer({
+  currency: 'USDT',
+  amount: '250',
+  type: 'contract_to_spot',
+});
+
+console.log(`Transferred back: ${result.data.amount} ${result.data.currency}`);
+```
+</CodeGroup>
+
+---
+
+## Sub-Account Management
+
+The following methods allow a main account to move futures funds to and from sub-accounts, and to inspect sub-account balances and transfer history.
+
+<Note>
+  Sub-account endpoints use separate API paths depending on whether the initiating party is the main account or a sub-account. Choose the correct method for your use case.
+</Note>
+
+### `submitFuturesSubToMainTransferFromMain(params)`
+
+Initiated by the **main account**: pulls funds from a sub-account's futures wallet into the main account.
+
+**Signature**
+```typescript
+submitFuturesSubToMainTransferFromMain(
+  params: TransferFuturesAssetsRequest,
+): Promise<APIResponse<any>>
+```
+
+<ParamField body="requestNo" type="string" required>
+  UUID unique identifier for idempotency. Max length 64.
+</ParamField>
+
+<ParamField body="amount" type="string" required>
+  Transfer amount.
+</ParamField>
+
+<ParamField body="currency" type="string" required>
+  Currency. Currently only `USDT` is supported.
+</ParamField>
+
+<ParamField body="subAccount" type="string" required>
+  Sub-account username.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+import { randomUUID } from 'crypto';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+await client.submitFuturesSubToMainTransferFromMain({
+  requestNo: randomUUID(),
+  amount: '100',
+  currency: 'USDT',
+  subAccount: 'my_sub_account',
+});
+```
+</CodeGroup>
+
+---
+
+### `submitFuturesMainToSubTransferFromMain(params)`
+
+Initiated by the **main account**: pushes funds from the main account's futures wallet to a sub-account.
+
+**Signature**
+```typescript
+submitFuturesMainToSubTransferFromMain(
+  params: TransferFuturesAssetsRequest,
+): Promise<APIResponse<any>>
+```
+
+Accepts the same `TransferFuturesAssetsRequest` params as `submitFuturesSubToMainTransferFromMain`.
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+import { randomUUID } from 'crypto';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+await client.submitFuturesMainToSubTransferFromMain({
+  requestNo: randomUUID(),
+  amount: '200',
+  currency: 'USDT',
+  subAccount: 'my_sub_account',
+});
+```
+</CodeGroup>
+
+---
+
+### `submitFuturesSubToMainSubFromSub(params)`
+
+Initiated by a **sub-account**: transfers funds from the sub-account's futures wallet to the main account. No `subAccount` field is needed as the authenticated key belongs to the sub-account itself.
+
+**Signature**
+```typescript
+submitFuturesSubToMainSubFromSub(
+  params: SubmitFuturesSubToMainSubFromSubRequest,
+): Promise<APIResponse<any>>
+```
+
+<ParamField body="requestNo" type="string" required>
+  UUID unique identifier. Max length 64.
+</ParamField>
+
+<ParamField body="amount" type="string" required>
+  Transfer amount.
+</ParamField>
+
+<ParamField body="currency" type="string" required>
+  Currency. Only `USDT` is supported.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+import { randomUUID } from 'crypto';
+
+// Client authenticated as the sub-account
+const subClient = new FuturesClientV2({
+  apiKey: process.env.SUB_API_KEY!,
+  apiSecret: process.env.SUB_API_SECRET!,
+  apiMemo: process.env.SUB_API_MEMO!,
+});
+
+await subClient.submitFuturesSubToMainSubFromSub({
+  requestNo: randomUUID(),
+  amount: '50',
+  currency: 'USDT',
+});
+```
+</CodeGroup>
+
+---
+
+### `getFuturesSubWallet(params?)`
+
+Returns the futures wallet balances for a sub-account. Must be called from the main account.
+
+**Signature**
+```typescript
+getFuturesSubWallet(params?: FuturesSubWalletRequest): Promise<
+  APIResponse<{ wallet: AccountCurrencyBalanceV1[] }>
+>
+```
+
+<ParamField query="subAccount" type="string" required>
+  Sub-account username.
+</ParamField>
+
+<ParamField query="currency" type="string">
+  Optional currency filter (e.g. `USDT`).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const wallet = await client.getFuturesSubWallet({
+  subAccount: 'my_sub_account',
+  currency: 'USDT',
+});
+
+for (const balance of wallet.data.wallet) {
+  console.log(`${balance.currency}: ${balance.available}`);
+}
+```
+</CodeGroup>
+
+---
+
+### `getFuturesSubTransfers(params)`
+
+Returns the futures transfer list for a specific sub-account (called from the main account).
+
+**Signature**
+```typescript
+getFuturesSubTransfers(
+  params: FuturesSubTransfersRequest,
+): Promise<APIResponse<FuturesAccountSubTransfer[]>>
+```
+
+<ParamField query="subAccount" type="string" required>
+  Sub-account username.
+</ParamField>
+
+<ParamField query="limit" type="number" required>
+  Number of records to return. Range: `[1, 100]`.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const transfers = await client.getFuturesSubTransfers({
+  subAccount: 'my_sub_account',
+  limit: 50,
+});
+
+for (const t of transfers.data) {
+  console.log(`${t.fromAccount} → ${t.toAccount}: ${t.amount} ${t.currency}`);
+}
+```
+</CodeGroup>
+
+---
+
+### `getFuturesSubTransferHistory(params)`
+
+Returns the authenticated sub-account's own transfer history. Call this using the sub-account's API credentials.
+
+**Signature**
+```typescript
+getFuturesSubTransferHistory(params: {
+  limit: number;
+}): Promise<APIResponse<FuturesAccountSubTransfer[]>>
+```
+
+<ParamField query="limit" type="number" required>
+  Number of records to return. Range: `[1, 100]`.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+// Authenticated as the sub-account
+const subClient = new FuturesClientV2({
+  apiKey: process.env.SUB_API_KEY!,
+  apiSecret: process.env.SUB_API_SECRET!,
+  apiMemo: process.env.SUB_API_MEMO!,
+});
+
+const history = await subClient.getFuturesSubTransferHistory({ limit: 20 });
+
+for (const record of history.data) {
+  console.log(`From: ${record.fromAccount} To: ${record.toAccount} — ${record.amount} ${record.currency}`);
+}
+```
+</CodeGroup>

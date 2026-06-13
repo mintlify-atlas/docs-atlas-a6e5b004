@@ -1,0 +1,800 @@
+---
+title: "Spot Order Management REST API Reference"
+sidebarTitle: "Orders"
+description: "Place, cancel, and query BitMart spot and margin orders — single, batch, and all-cancel operations — using the Node.js/TypeScript SDK."
+---
+
+The spot order management endpoints cover the full order lifecycle: placing single and batch orders, cancelling by ID or in bulk, and querying open orders, historical orders, and trade fills. All endpoints require authentication. Use the `submitSpotOrderV2` method for standard spot orders and the V4 query endpoints for the most up-to-date order state.
+
+## Setup
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: 'YOUR_API_KEY',
+  apiSecret: 'YOUR_API_SECRET',
+  apiMemo: 'YOUR_API_MEMO',
+});
+```
+
+<Note>
+  All methods on this page require a valid API key with **trade permissions** enabled. Read-only keys cannot place or cancel orders.
+</Note>
+
+---
+
+## Placing Orders
+
+### `submitSpotOrderV2(params)`
+
+Places a single spot order. This is the primary endpoint for creating buy and sell orders.
+
+```typescript
+submitSpotOrderV2(params: SubmitSpotOrderV2Request): Promise<APIResponse<{ order_id: string }>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Trading pair, e.g. `"BTC_USDT"`.
+</ParamField>
+
+<ParamField body="side" type="string" required>
+  Order direction: `"buy"` or `"sell"`.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  Order type. One of:
+  - `"limit"` — execute at a specific price or better
+  - `"market"` — execute immediately at the best available price
+  - `"limit_maker"` — post-only limit order; rejected if it would immediately match
+  - `"ioc"` — immediate-or-cancel; fills what it can, cancels the rest
+</ParamField>
+
+<ParamField body="size" type="string">
+  Order quantity in base asset units. Required for `limit`, `limit_maker`, `ioc` orders, and market **sell** orders. For market **buy** orders, use `notional` instead.
+</ParamField>
+
+<ParamField body="price" type="string">
+  Limit price. Required for `limit`, `limit_maker`, and `ioc` order types.
+</ParamField>
+
+<ParamField body="notional" type="string">
+  Quote currency amount. Used for market **buy** orders (e.g. spend `"100"` USDT worth of BTC).
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  Optional user-defined order ID (max 32 characters). Must be unique per account.
+</ParamField>
+
+<ParamField body="stpmode" type="string">
+  Self-trade prevention mode:
+  - `"none"` (default) — no STP
+  - `"cancel_maker"` — cancel the resting order
+  - `"cancel_taker"` — cancel the incoming order
+  - `"cancel_both"` — cancel both orders
+</ParamField>
+
+<CodeGroup>
+```typescript Limit Buy Order
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.submitSpotOrderV2({
+  symbol: 'BTC_USDT',
+  side: 'buy',
+  type: 'limit',
+  size: '0.001',
+  price: '50000',
+  client_order_id: 'my-order-001',
+});
+
+console.log('Order placed! ID:', response.data.order_id);
+```
+
+```typescript Market Buy Order (notional)
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Spend exactly 100 USDT to buy BTC at market price
+const response = await client.submitSpotOrderV2({
+  symbol: 'BTC_USDT',
+  side: 'buy',
+  type: 'market',
+  notional: '100',
+});
+
+console.log('Market buy order placed! ID:', response.data.order_id);
+```
+
+```typescript Market Sell Order
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Sell 0.005 BTC at market price
+const response = await client.submitSpotOrderV2({
+  symbol: 'BTC_USDT',
+  side: 'sell',
+  type: 'market',
+  size: '0.005',
+});
+
+console.log('Market sell order placed! ID:', response.data.order_id);
+```
+
+```typescript Post-Only (limit_maker) Order
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Only executes if it adds liquidity (maker); rejected if it would cross the spread
+const response = await client.submitSpotOrderV2({
+  symbol: 'ETH_USDT',
+  side: 'buy',
+  type: 'limit_maker',
+  size: '0.1',
+  price: '2800',
+});
+
+console.log('Post-only order placed! ID:', response.data.order_id);
+```
+</CodeGroup>
+
+---
+
+### `submitMarginOrderV1(params)`
+
+Places an order on an isolated margin account. Accepts the same parameters as `submitSpotOrderV2`.
+
+```typescript
+submitMarginOrderV1(params: SubmitSpotOrderV2Request): Promise<APIResponse<{ order_id: number }>>
+```
+
+<Note>
+  The margin order endpoint returns `order_id` as a `number`, unlike the spot endpoint which returns it as a `string`.
+</Note>
+
+<CodeGroup>
+```typescript Place Margin Order
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.submitMarginOrderV1({
+  symbol: 'BTC_USDT',
+  side: 'buy',
+  type: 'limit',
+  size: '0.001',
+  price: '50000',
+});
+
+console.log('Margin order placed! ID:', response.data.order_id);
+```
+</CodeGroup>
+
+---
+
+### `submitSpotBatchOrdersV4(params)`
+
+Places multiple orders for the same symbol in a single API call. Supports up to the exchange batch limit per request.
+
+```typescript
+submitSpotBatchOrdersV4(params: SubmitSpotBatchOrdersV4Request): Promise<
+  APIResponse<{ orderIds: string[] }>
+>
+```
+
+<ParamField body="symbol" type="string" required>
+  Trading pair for all orders in the batch, e.g. `"BTC_USDT"`.
+</ParamField>
+
+<ParamField body="orderParams" type="array" required>
+  Array of order objects. Each supports:
+  - `side` (`"buy"` | `"sell"`) — required
+  - `type` (`"limit"` | `"market"` | `"limit_maker"` | `"ioc"`) — required
+  - `size` — quantity in base asset
+  - `price` — limit price
+  - `notional` — quote amount for market buys
+  - `clientOrderId` — optional custom ID
+  - `stpmode` — self-trade prevention
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds (max 60000, default 5000).
+</ParamField>
+
+<CodeGroup>
+```typescript Batch Submit Orders V4
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.submitSpotBatchOrdersV4({
+  symbol: 'BTC_USDT',
+  orderParams: [
+    { side: 'buy', type: 'limit', size: '0.001', price: '49000', clientOrderId: 'batch-buy-1' },
+    { side: 'buy', type: 'limit', size: '0.001', price: '48000', clientOrderId: 'batch-buy-2' },
+    { side: 'sell', type: 'limit', size: '0.001', price: '52000', clientOrderId: 'batch-sell-1' },
+  ],
+});
+
+console.log('Batch order IDs:', response.data.orderIds);
+```
+</CodeGroup>
+
+---
+
+### `submitSpotBatchOrdersV2(params)`
+
+<Warning>
+  This method is marked `@deprecated`. Use `submitSpotBatchOrdersV4` for new integrations.
+</Warning>
+
+Places a batch of spot orders using the legacy V2 endpoint.
+
+```typescript
+submitSpotBatchOrdersV2(params: {
+  order_params: SubmitSpotOrderV2Request[];
+}): Promise<APIResponse<{ responses: SubmittedSpotBatchOrderResponseV2[] }>>
+```
+
+---
+
+## Cancelling Orders
+
+### `cancelSpotOrderV3(params)`
+
+Cancels a single spot order by order ID or client order ID.
+
+```typescript
+cancelSpotOrderV3(params: CancelOrdersV3Request): Promise<APIResponse<{ result: boolean }>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Trading pair of the order to cancel.
+</ParamField>
+
+<ParamField body="order_id" type="string">
+  Exchange-assigned order ID. Required if `client_order_id` is not provided.
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  User-defined order ID. Required if `order_id` is not provided.
+</ParamField>
+
+<CodeGroup>
+```typescript Cancel Order by ID
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.cancelSpotOrderV3({
+  symbol: 'BTC_USDT',
+  order_id: '123456789',
+});
+
+console.log('Cancel result:', response.data.result);
+```
+
+```typescript Cancel Order by Client Order ID
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.cancelSpotOrderV3({
+  symbol: 'BTC_USDT',
+  client_order_id: 'my-order-001',
+});
+
+console.log('Cancel result:', response.data.result);
+```
+</CodeGroup>
+
+---
+
+### `cancelSpotBatchOrdersV4(params)`
+
+Cancels multiple orders for a symbol by providing arrays of order IDs or client order IDs.
+
+```typescript
+cancelSpotBatchOrdersV4(params: CancelSpotBatchOrdersV4Request): Promise<
+  APIResponse<CancelSpotBatchOrdersV4Response>
+>
+```
+
+<ParamField body="symbol" type="string" required>
+  Trading pair for the orders to cancel.
+</ParamField>
+
+<ParamField body="orderIds" type="string[]">
+  Array of exchange order IDs to cancel.
+</ParamField>
+
+<ParamField body="clientOrderIds" type="string[]">
+  Array of client order IDs to cancel.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds (max 60000).
+</ParamField>
+
+**Response — `CancelSpotBatchOrdersV4Response` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `successIds` | `string[]` | Order IDs successfully cancelled |
+| `failIds` | `string[]` | Order IDs that failed to cancel |
+| `totalCount` | `number` | Total orders attempted |
+| `successCount` | `number` | Number successfully cancelled |
+| `failedCount` | `number` | Number that failed |
+
+<CodeGroup>
+```typescript Batch Cancel Orders V4
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.cancelSpotBatchOrdersV4({
+  symbol: 'BTC_USDT',
+  orderIds: ['111111', '222222', '333333'],
+});
+
+const result = response.data;
+console.log(`Cancelled ${result.successCount}/${result.totalCount} orders`);
+if (result.failedCount > 0) {
+  console.log('Failed to cancel:', result.failIds);
+}
+```
+</CodeGroup>
+
+---
+
+### `cancelAllSpotOrders(params?)`
+
+Cancels all open spot orders, optionally filtered by symbol and/or side.
+
+```typescript
+cancelAllSpotOrders(params?: {
+  symbol?: string;
+  side?: OrderSide;
+}): Promise<APIResponse<any>>
+```
+
+<ParamField body="symbol" type="string">
+  Optional. Cancel all orders for a specific trading pair only.
+</ParamField>
+
+<ParamField body="side" type="string">
+  Optional. Cancel only `"buy"` or `"sell"` orders.
+</ParamField>
+
+<CodeGroup>
+```typescript Cancel All Open Orders
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Cancel ALL open spot orders across all symbols
+await client.cancelAllSpotOrders();
+console.log('All open spot orders cancelled');
+```
+
+```typescript Cancel All Buy Orders for Symbol
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Cancel only open BUY orders on BTC_USDT
+await client.cancelAllSpotOrders({
+  symbol: 'BTC_USDT',
+  side: 'buy',
+});
+console.log('All BTC_USDT buy orders cancelled');
+```
+</CodeGroup>
+
+---
+
+### `cancelSpotOrdersV1(params?)`
+
+<Warning>
+  This method is marked `@deprecated`. Use `cancelAllSpotOrders` or `cancelSpotBatchOrdersV4` instead.
+</Warning>
+
+```typescript
+cancelSpotOrdersV1(params?: {
+  symbol?: string;
+  side?: OrderSide;
+}): Promise<APIResponse<{}>>
+```
+
+---
+
+## Querying Orders
+
+### `getSpotOrderByIdV4(params)`
+
+Retrieves the current state of an order by its exchange-assigned order ID.
+
+```typescript
+getSpotOrderByIdV4(params: SpotOrderByIdV4Request): Promise<APIResponse<SpotOrderV4>>
+```
+
+<ParamField body="orderId" type="string" required>
+  The exchange-assigned order ID.
+</ParamField>
+
+<ParamField body="queryState" type="string">
+  Optional hint: `"open"` to query open orders only, `"history"` for filled/cancelled orders. Omit to query both.
+</ParamField>
+
+<ParamField body="recvwindow" type="number">
+  Request validity window in milliseconds.
+</ParamField>
+
+**Response — `SpotOrderV4` key fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `orderId` | `string` | Exchange order ID |
+| `clientOrderId` | `string` | Client-assigned order ID |
+| `symbol` | `string` | Trading pair |
+| `side` | `string` | `"buy"` or `"sell"` |
+| `type` | `string` | Order type |
+| `price` | `string` | Limit price |
+| `size` | `string` | Requested size |
+| `state` | `string` | Order state (e.g. `"new"`, `"partially_filled"`, `"filled"`, `"cancelled"`) |
+| `priceAvg` | `string` | Average fill price |
+| `filledSize` | `string` | Amount filled so far |
+| `filledNotional` | `string` | Quote value filled |
+| `orderMode` | `string` | `"spot"` or `"iso_margin"` |
+| `createTime` | `number` | Creation timestamp (ms) |
+| `updateTime` | `number` | Last update timestamp (ms) |
+
+<CodeGroup>
+```typescript Get Order by ID
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotOrderByIdV4({
+  orderId: '123456789',
+});
+
+const order = response.data;
+console.log(`Order ${order.orderId}`);
+console.log(`  State: ${order.state}`);
+console.log(`  Filled: ${order.filledSize} / ${order.size}`);
+console.log(`  Avg price: ${order.priceAvg}`);
+```
+</CodeGroup>
+
+---
+
+### `getSpotOrderByClientOrderIdV4(params)`
+
+Retrieves an order using the client-assigned order ID set at submission time.
+
+```typescript
+getSpotOrderByClientOrderIdV4(params: SpotOrderByClientOrderIdV4Request): Promise<APIResponse<SpotOrderV4>>
+```
+
+<ParamField body="clientOrderId" type="string" required>
+  The client-assigned order ID.
+</ParamField>
+
+<ParamField body="queryState" type="string">
+  Optional: `"open"` or `"history"`.
+</ParamField>
+
+<CodeGroup>
+```typescript Get Order by Client Order ID
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotOrderByClientOrderIdV4({
+  clientOrderId: 'my-order-001',
+});
+
+console.log('State:', response.data.state);
+console.log('Filled notional:', response.data.filledNotional);
+```
+</CodeGroup>
+
+---
+
+### `getSpotOpenOrdersV4(params?)`
+
+Returns all currently open orders, optionally filtered by mode and time range.
+
+```typescript
+getSpotOpenOrdersV4(params?: SpotOpenOrdersV4Request): Promise<APIResponse<SpotOrderV4[]>>
+```
+
+<ParamField body="orderMode" type="string">
+  `"spot"` for spot orders, `"iso_margin"` for isolated margin orders.
+</ParamField>
+
+<ParamField body="startTime" type="number">
+  Filter by creation time start (ms).
+</ParamField>
+
+<ParamField body="endTime" type="number">
+  Filter by creation time end (ms).
+</ParamField>
+
+<ParamField body="limit" type="number">
+  Number of results, range `[1, 200]`, default `200`.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds.
+</ParamField>
+
+<CodeGroup>
+```typescript Get All Open Orders
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotOpenOrdersV4({ orderMode: 'spot' });
+const orders = response.data;
+
+console.log(`Open orders: ${orders.length}`);
+for (const order of orders) {
+  console.log(`  [${order.symbol}] ${order.side} ${order.size} @ ${order.price} — ${order.state}`);
+}
+```
+</CodeGroup>
+
+---
+
+### `getSpotHistoricOrdersV4(params?)`
+
+Returns order history (filled, cancelled, etc.) with optional filtering.
+
+```typescript
+getSpotHistoricOrdersV4(params?: SpotOrderTradeHistoryV4Request): Promise<APIResponse<SpotOrderV4[]>>
+```
+
+<ParamField body="symbol" type="string">
+  Optional. Filter to a specific trading pair.
+</ParamField>
+
+<ParamField body="orderMode" type="string">
+  `"spot"` or `"iso_margin"`.
+</ParamField>
+
+<ParamField body="startTime" type="number">
+  Start of time range (ms).
+</ParamField>
+
+<ParamField body="endTime" type="number">
+  End of time range (ms).
+</ParamField>
+
+<ParamField body="limit" type="number">
+  Number of results, range `[1, 200]`, default `200`.
+</ParamField>
+
+<ParamField body="recvWindow" type="number">
+  Request validity window in milliseconds.
+</ParamField>
+
+<CodeGroup>
+```typescript Get Order History
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+const response = await client.getSpotHistoricOrdersV4({
+  symbol: 'BTC_USDT',
+  startTime: oneDayAgo,
+  limit: 50,
+});
+
+for (const order of response.data) {
+  console.log(`${order.orderId}: ${order.state} — filled ${order.filledSize}`);
+}
+```
+</CodeGroup>
+
+---
+
+### `getSpotAccountTradesV4(params?)`
+
+Returns a list of individual trade fills (executions) for your account. Each record corresponds to a partial or full fill event.
+
+```typescript
+getSpotAccountTradesV4(params?: SpotOrderTradeHistoryV4Request): Promise<APIResponse<SpotAccountTradeV4[]>>
+```
+
+<ParamField body="symbol" type="string">
+  Optional. Filter by trading pair.
+</ParamField>
+
+<ParamField body="orderMode" type="string">
+  `"spot"` or `"iso_margin"`.
+</ParamField>
+
+<ParamField body="startTime" type="number">
+  Start of time range (ms).
+</ParamField>
+
+<ParamField body="endTime" type="number">
+  End of time range (ms).
+</ParamField>
+
+<ParamField body="limit" type="number">
+  Number of results, range `[1, 200]`.
+</ParamField>
+
+**Response — `SpotAccountTradeV4` additional fields (extends `SpotOrderV4` base):**
+
+| Field | Type | Description |
+|---|---|---|
+| `tradeId` | `string` | Unique trade execution ID |
+| `fee` | `string` | Fee charged for this fill |
+| `feeCoinName` | `string` | Currency used for fee payment |
+| `tradeRole` | `'taker' \| 'maker'` | Whether order was taker or maker |
+
+<CodeGroup>
+```typescript Get Recent Trades
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotAccountTradesV4({
+  symbol: 'BTC_USDT',
+  limit: 20,
+});
+
+for (const trade of response.data) {
+  console.log(
+    `[${trade.tradeId}] ${trade.side} ${trade.size} @ ${trade.price} ` +
+    `| fee: ${trade.fee} ${trade.feeCoinName} (${trade.tradeRole})`
+  );
+}
+```
+</CodeGroup>
+
+---
+
+## Complete Order Lifecycle Example
+
+The following example demonstrates the full lifecycle of a limit order: place it, poll its status, then cancel it if still open.
+
+<CodeGroup>
+```typescript Order Lifecycle: Place → Check → Cancel
+import { RestClient } from 'bitmart-api';
+
+async function orderLifecycle() {
+  const client = new RestClient({
+    apiKey: process.env.API_KEY!,
+    apiSecret: process.env.API_SECRET!,
+    apiMemo: process.env.API_MEMO!,
+  });
+
+  // Step 1: Place a limit buy order
+  console.log('Placing limit buy order...');
+  const submitResponse = await client.submitSpotOrderV2({
+    symbol: 'BTC_USDT',
+    side: 'buy',
+    type: 'limit',
+    size: '0.001',
+    price: '45000',
+    client_order_id: `order-${Date.now()}`,
+  });
+
+  const orderId = submitResponse.data.order_id;
+  console.log(`Order placed: ${orderId}`);
+
+  // Step 2: Check order status
+  console.log('\nChecking order status...');
+  const statusResponse = await client.getSpotOrderByIdV4({
+    orderId,
+    queryState: 'open',
+  });
+
+  const order = statusResponse.data;
+  console.log(`State: ${order.state}`);
+  console.log(`Filled: ${order.filledSize} / ${order.size}`);
+  console.log(`Price: ${order.price}`);
+
+  // Step 3: Cancel if still open
+  if (order.state === 'new' || order.state === 'partially_filled') {
+    console.log('\nCancelling order...');
+    const cancelResponse = await client.cancelSpotOrderV3({
+      symbol: 'BTC_USDT',
+      order_id: orderId,
+    });
+    console.log(`Cancel result: ${cancelResponse.data.result}`);
+  } else {
+    console.log(`\nOrder is already ${order.state} — no cancel needed.`);
+  }
+
+  // Step 4: Verify final state from history
+  console.log('\nVerifying final state from history...');
+  const finalState = await client.getSpotOrderByIdV4({
+    orderId,
+    queryState: 'history',
+  });
+  console.log('Final state:', finalState.data.state);
+}
+
+await orderLifecycle();
+```
+</CodeGroup>
+
+<Tip>
+  Use `client_order_id` when submitting orders so you can look them up by your own ID using `getSpotOrderByClientOrderIdV4` — this is especially useful if you lose the exchange `order_id` before persisting it.
+</Tip>

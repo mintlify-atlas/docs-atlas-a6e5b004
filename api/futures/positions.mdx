@@ -1,0 +1,478 @@
+---
+title: "Futures Positions & Leverage REST API Reference"
+sidebarTitle: "Positions"
+description: "Query open BitMart futures positions and risk details, set leverage and margin mode, and configure one-way or hedge position modes using FuturesClientV2."
+---
+
+The position and leverage endpoints give you full control over how your futures exposure is managed — from viewing current open positions and their liquidation prices, to adjusting leverage and switching between one-way and hedge position modes. All methods on this page require authentication (SIGNED).
+
+<Warning>
+  **Leverage amplifies both gains and losses.** High leverage significantly increases the risk of liquidation. Always verify your margin balance and liquidation price before increasing leverage on an open position. Never risk more than you can afford to lose.
+</Warning>
+
+## Setup
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+```
+
+---
+
+## Viewing Positions
+
+### `getFuturesAccountPositions(params?)`
+
+Returns all currently open futures positions. Optionally filter by symbol or sub-account.
+
+**Signature**
+```typescript
+getFuturesAccountPositions(params?: {
+  symbol?: string;
+  account?: string;
+}): Promise<APIResponse<FuturesAccountPosition[]>>
+```
+
+<ParamField query="symbol" type="string">
+  Optional contract symbol filter (e.g. `BTCUSDT`). Omit to retrieve all open positions.
+</ParamField>
+
+<ParamField query="account" type="string">
+  Optional account type filter (e.g. `futures`).
+</ParamField>
+
+**Response fields (`FuturesAccountPosition`)**
+
+<Expandable title="FuturesAccountPosition fields">
+  | Field | Type | Description |
+  |---|---|---|
+  | `symbol` | string | Contract symbol |
+  | `leverage` | string | Current leverage |
+  | `open_type` | string | (via `position_mode`) Margin type |
+  | `current_amount` | string | Open position size (contracts) |
+  | `entry_price` | string | Average entry price |
+  | `open_avg_price` | string | Average open price |
+  | `mark_price` | string | Current mark price |
+  | `position_value` | string | Notional value of the position |
+  | `position_cross` | string | Cross margin allocated |
+  | `maintenance_margin` | string | Required maintenance margin |
+  | `unrealized_value` | string | Unrealised PnL |
+  | `realized_value` | string | Cumulative realised PnL |
+  | `current_fee` | string | Accumulated trading fees |
+  | `close_vol` | string | Volume closed so far |
+  | `close_avg_price` | string | Average close price |
+  | `position_type` | 1\|2 | `1` = long, `2` = short |
+  | `open_timestamp` | number | Position open time (Unix ms) |
+  | `timestamp` | number | Last update time (Unix ms) |
+  | `account` | string | Account identifier |
+  | `position_mode` | string | `hedge_mode` or `one_way_mode` |
+</Expandable>
+
+<CodeGroup>
+```typescript All open positions
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const positions = await client.getFuturesAccountPositions();
+
+for (const pos of positions.data) {
+  const side = pos.position_type === 1 ? 'LONG' : 'SHORT';
+  console.log(
+    `${pos.symbol} ${side}: size=${pos.current_amount}, entry=${pos.entry_price}, PnL=${pos.unrealized_value}`
+  );
+}
+```
+
+```typescript Single symbol
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const positions = await client.getFuturesAccountPositions({ symbol: 'BTCUSDT' });
+
+if (positions.data.length === 0) {
+  console.log('No open BTCUSDT positions');
+} else {
+  console.log('BTCUSDT position:', JSON.stringify(positions.data[0], null, 2));
+}
+```
+</CodeGroup>
+
+---
+
+### `getFuturesAccountPositionsV2(params?)`
+
+Enhanced version of `getFuturesAccountPositions` with additional fields including `position_side`, `unrealized_pnl`, `liquidation_price`, `initial_margin`, and `max_notional_value`.
+
+**Signature**
+```typescript
+getFuturesAccountPositionsV2(params?: {
+  symbol?: string;
+  account?: string;
+}): Promise<APIResponse<FuturesAccountPositionV2[]>>
+```
+
+Accepts the same optional params as V1.
+
+**Additional fields in V2 (`FuturesAccountPositionV2`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `position_side` | string | `Long` or `Short` (explicit string) |
+| `open_type` | string | Margin type: `cross` or `isolated` |
+| `unrealized_pnl` | string | Unrealised profit/loss |
+| `liquidation_price` | string | Price at which position is liquidated |
+| `initial_margin` | string | Initial margin locked for the position |
+| `max_notional_value` | string | Maximum allowed notional value |
+| `mark_value` | string | Current mark price × position size |
+| `position_amount` | string | Position size in contract units |
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const positions = await client.getFuturesAccountPositionsV2({ symbol: 'BTCUSDT' });
+
+for (const pos of positions.data) {
+  console.log(`${pos.symbol} ${pos.position_side}`);
+  console.log(`  Entry: ${pos.entry_price} | Mark: ${pos.mark_price}`);
+  console.log(`  Unrealised PnL: ${pos.unrealized_pnl}`);
+  console.log(`  Liquidation price: ${pos.liquidation_price}`);
+  console.log(`  Initial margin: ${pos.initial_margin}`);
+}
+```
+</CodeGroup>
+
+<Tip>
+  Prefer `getFuturesAccountPositionsV2` for new integrations. The V2 response includes `liquidation_price` and `unrealized_pnl` as top-level fields, making risk monitoring simpler.
+</Tip>
+
+---
+
+### `getPositionRiskDetails(params?)`
+
+Returns detailed risk metrics for open positions, including isolation margin, leverage, and max notional value per position.
+
+**Signature**
+```typescript
+getPositionRiskDetails(params?: {
+  symbol?: string;
+  account?: string;
+}): Promise<APIResponse<PositionRisk[]>>
+```
+
+<ParamField query="symbol" type="string">
+  Optional contract symbol filter.
+</ParamField>
+
+<ParamField query="account" type="string">
+  Optional account type filter.
+</ParamField>
+
+**Response fields (`PositionRisk`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `symbol` | string | Contract symbol |
+| `position_amt` | string | Position size |
+| `mark_price` | string | Current mark price |
+| `unrealized_profit` | string | Unrealised PnL |
+| `liquidation_price` | string | Estimated liquidation price |
+| `leverage` | string | Current leverage |
+| `max_notional_value` | string | Maximum position notional value |
+| `margin_type` | string | `Cross` or `Isolated` |
+| `isolated_margin` | string | Isolated margin allocated (if applicable) |
+| `position_side` | string | `Long` or `Short` |
+| `notional` | string | Current notional value |
+| `update_time` | number | Last update time (Unix ms) |
+| `account` | string | Account identifier |
+
+<CodeGroup>
+```typescript Check liquidation risk
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const risks = await client.getPositionRiskDetails();
+
+for (const risk of risks.data) {
+  const markPrice = parseFloat(risk.mark_price);
+  const liqPrice = parseFloat(risk.liquidation_price);
+
+  const distanceToLiq =
+    risk.position_side === 'Long'
+      ? ((markPrice - liqPrice) / markPrice) * 100
+      : ((liqPrice - markPrice) / markPrice) * 100;
+
+  console.log(
+    `${risk.symbol} ${risk.position_side}: liq at ${risk.liquidation_price} ` +
+    `(${distanceToLiq.toFixed(2)}% away), leverage ${risk.leverage}x`
+  );
+}
+```
+</CodeGroup>
+
+---
+
+## Leverage Management
+
+### `setFuturesLeverage(params)`
+
+Sets the leverage for a specific futures contract and margin mode. Can be called before or after opening a position.
+
+**Signature**
+```typescript
+setFuturesLeverage(
+  params: SetFuturesLeverageRequest,
+): Promise<APIResponse<FuturesAccountSetLeverageResult>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField body="open_type" type="string" required>
+  Margin mode: `cross` or `isolated`.
+</ParamField>
+
+<ParamField body="leverage" type="string">
+  Leverage multiplier as a string (e.g. `"20"`). Omit to query the current leverage without changing it.
+</ParamField>
+
+**Response fields (`FuturesAccountSetLeverageResult`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `symbol` | string | Contract symbol |
+| `leverage` | string | Applied leverage value |
+| `open_type` | string | Margin mode (`cross` or `isolated`) |
+| `max_value` | string | Maximum allowed leverage for the contract |
+
+<Warning>
+  Increasing leverage on an **existing open position** will immediately change your liquidation price. Ensure you have sufficient margin before doing so. Reducing leverage requires enough available margin to absorb the change.
+</Warning>
+
+<CodeGroup>
+```typescript Set cross margin leverage
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const result = await client.setFuturesLeverage({
+  symbol: 'BTCUSDT',
+  open_type: 'cross',
+  leverage: '10',
+});
+
+console.log(`Leverage set to ${result.data.leverage}x (max: ${result.data.max_value}x)`);
+```
+
+```typescript Set isolated margin leverage
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const result = await client.setFuturesLeverage({
+  symbol: 'ETHUSDT',
+  open_type: 'isolated',
+  leverage: '5',
+});
+
+console.log(`ETHUSDT isolated leverage: ${result.data.leverage}x`);
+```
+</CodeGroup>
+
+---
+
+## Position Mode
+
+BitMart futures supports two position modes. The mode you choose determines whether you can hold simultaneous long and short positions on the same contract.
+
+### Position Mode Explained
+
+<Tabs>
+  <Tab title="One-Way Mode">
+    In **one-way mode** (`one_way_mode`), you can only hold one directional position per contract at a time. Opening a position in the opposite direction will reduce or fully close your existing position.
+
+    - Simpler to manage
+    - Lower margin requirements
+    - Suitable for directional strategies
+  </Tab>
+  <Tab title="Hedge Mode">
+    In **hedge mode** (`hedge_mode`), you can simultaneously hold **both a long and a short position** on the same contract. Each side is tracked independently with its own margin and PnL.
+
+    - Allows holding longs and shorts simultaneously
+    - Useful for hedging strategies
+    - Higher total margin requirement
+    - Requires explicit `side` values that distinguish open/close intent
+  </Tab>
+</Tabs>
+
+<Note>
+  Changing position mode will fail if you have any open orders or open positions. Close all positions and cancel all orders before switching modes.
+</Note>
+
+---
+
+### `setPositionMode(params)`
+
+Switches the account between one-way mode and hedge mode.
+
+**Signature**
+```typescript
+setPositionMode(params: {
+  position_mode: 'hedge_mode' | 'one_way_mode';
+}): Promise<APIResponse<{ position_mode: 'hedge_mode' | 'one_way_mode' }>>
+```
+
+<ParamField body="position_mode" type="string" required>
+  Position mode to set: `hedge_mode` or `one_way_mode`.
+</ParamField>
+
+<CodeGroup>
+```typescript Enable hedge mode
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const result = await client.setPositionMode({ position_mode: 'hedge_mode' });
+console.log('Position mode set to:', result.data.position_mode);
+```
+
+```typescript Enable one-way mode
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const result = await client.setPositionMode({ position_mode: 'one_way_mode' });
+console.log('Position mode set to:', result.data.position_mode);
+```
+</CodeGroup>
+
+---
+
+### `getPositionMode()`
+
+Returns the current position mode for your account.
+
+**Signature**
+```typescript
+getPositionMode(): Promise<
+  APIResponse<{ position_mode: 'hedge_mode' | 'one_way_mode' }>
+>
+```
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const mode = await client.getPositionMode();
+console.log('Current position mode:', mode.data.position_mode);
+
+if (mode.data.position_mode === 'hedge_mode') {
+  console.log('Account supports simultaneous long/short positions');
+} else {
+  console.log('Account uses one-way directional positions');
+}
+```
+</CodeGroup>
+
+---
+
+## Complete Position Monitoring Example
+
+The following example demonstrates how to build a concise position dashboard combining positions, risk, and leverage information.
+
+<CodeGroup>
+```typescript Position dashboard
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+async function positionDashboard() {
+  // Fetch positions, risk, and position mode in parallel
+  const [positions, risks, mode] = await Promise.all([
+    client.getFuturesAccountPositionsV2(),
+    client.getPositionRiskDetails(),
+    client.getPositionMode(),
+  ]);
+
+  console.log(`\n=== Futures Position Dashboard ===`);
+  console.log(`Mode: ${mode.data.position_mode}`);
+  console.log(`Open positions: ${positions.data.length}\n`);
+
+  // Build a risk map for quick lookup
+  const riskMap = new Map(risks.data.map(r => `${r.symbol}_${r.position_side}`, r => r));
+
+  for (const pos of positions.data) {
+    const risk = risks.data.find(
+      r => r.symbol === pos.symbol && r.position_side === pos.position_side
+    );
+
+    console.log(`${pos.symbol} ${pos.position_side}`);
+    console.log(`  Size: ${pos.current_amount} contracts`);
+    console.log(`  Entry: $${pos.entry_price} | Mark: $${pos.mark_price}`);
+    console.log(`  Unrealised PnL: ${pos.unrealized_pnl}`);
+    console.log(`  Leverage: ${pos.leverage}x (${pos.open_type})`);
+
+    if (risk) {
+      console.log(`  Liquidation: $${risk.liquidation_price}`);
+      console.log(`  Margin: ${risk.margin_type}, isolated: ${risk.isolated_margin}`);
+    }
+    console.log('');
+  }
+}
+
+positionDashboard().catch(console.error);
+```
+</CodeGroup>

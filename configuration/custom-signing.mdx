@@ -1,0 +1,159 @@
+---
+title: "Custom HMAC Signing for High-Performance Requests"
+sidebarTitle: "Custom Signing"
+description: "Inject a faster Node.js createHmac signing function into RestClient or WebsocketClient to maximise throughput in high-frequency trading bots."
+---
+
+Every authenticated request and WebSocket login the SDK sends must be signed with an HMAC-SHA256 digest. By default, the SDK performs this signing via the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) (`globalThis.crypto.subtle`) to remain compatible with browser environments. In Node.js, the native `crypto.createHmac` method is measurably faster than the Web Crypto API for synchronous-style workloads. For bots placing a high volume of orders per second, switching to `createHmac` reduces per-request overhead and increases maximum sustainable throughput.
+
+## The `customSignMessageFn` Option
+
+Both `RestClientOptions` and `WSClientConfigurableOptions` accept a `customSignMessageFn` field. The SDK calls this function instead of its built-in Web Crypto implementation whenever it needs to sign a message:
+
+```typescript
+customSignMessageFn?: (message: string, secret: string) => Promise<string>
+```
+
+The function receives the pre-built message string and your raw API secret, and must return a `Promise` that resolves to a lowercase hex-encoded HMAC-SHA256 digest. Returning any other encoding will break authentication.
+
+---
+
+## Why the Default Uses Web Crypto
+
+<Note>
+  The SDK defaults to the Web Crypto API because it is available in all modern runtimes — Node.js (v18+), Deno, Bun, and every evergreen browser. This single implementation works in server-side bots, React/Vue frontends, and edge workers without any platform-specific branching. If you are building a browser-based tool or a multi-runtime library on top of `bitmart-api`, leave `customSignMessageFn` unset to retain cross-platform compatibility.
+</Note>
+
+---
+
+## Complete Example
+
+The following is the full `fasterHmacSign` example from the SDK repository. It demonstrates injecting `createHmac` into both `RestClient` and `WebsocketClient`.
+
+<CodeGroup>
+  ```typescript REST Client
+  import { createHmac } from 'crypto';
+  import { RestClient } from 'bitmart-api';
+
+  const account = {
+    key: process.env.API_KEY || 'apiKeyHere',
+    secret: process.env.API_SECRET || 'apiSecretHere',
+    memo: process.env.API_MEMO || 'apiMemoHere',
+  };
+
+  const client = new RestClient({
+    apiKey: account.key,
+    apiSecret: account.secret,
+    apiMemo: account.memo,
+    /**
+     * Overkill in almost every case, but if you need any optimisation available,
+     * you can inject a faster sign mechanism such as node's native createHmac:
+     */
+    customSignMessageFn: async (message, secret) => {
+      return createHmac('sha256', secret).update(message).digest('hex');
+    },
+  });
+
+  async function getSpotBalances() {
+    try {
+      const balances = await client.getAccountBalancesV1();
+      console.log('Balances: ', JSON.stringify(balances, null, 2));
+    } catch (e) {
+      console.error('Req error: ', e);
+    }
+  }
+
+  getSpotBalances();
+  ```
+
+  ```typescript WebSocket Client
+  import { createHmac } from 'crypto';
+  import { WebsocketClient } from 'bitmart-api';
+
+  const account = {
+    key: process.env.API_KEY || 'apiKeyHere',
+    secret: process.env.API_SECRET || 'apiSecretHere',
+    memo: process.env.API_MEMO || 'apiMemoHere',
+  };
+
+  // Reusable signing function — define once, pass to any client
+  const customSignMessageFn = async (message: string, secret: string) => {
+    return createHmac('sha256', secret).update(message).digest('hex');
+  };
+
+  const wsClient = new WebsocketClient({
+    apiKey: account.key,
+    apiSecret: account.secret,
+    apiMemo: account.memo,
+    customSignMessageFn,
+  });
+
+  wsClient.on('open', ({ wsKey }) => {
+    console.log('WS connected:', wsKey);
+  });
+
+  wsClient.on('update', (data) => {
+    console.log('WS data:', JSON.stringify(data, null, 2));
+  });
+
+  wsClient.on('authenticated', (data) => {
+    console.log('WS authenticated:', data);
+  });
+
+  wsClient.on('exception', (err) => {
+    console.error('WS error:', err);
+  });
+
+  // Subscribe to a private futures stream
+  wsClient.subscribe('futures/user/order:BTCUSDT', 'futures');
+  ```
+</CodeGroup>
+
+---
+
+## How to Add Custom Signing in 3 Steps
+
+<Steps>
+  <Step title="Import createHmac from Node's crypto module">
+    ```typescript
+    import { createHmac } from 'crypto';
+    ```
+    This is a built-in Node.js module — no extra package installation required.
+  </Step>
+  <Step title="Define the signing function">
+    ```typescript
+    const customSignMessageFn = async (message: string, secret: string): Promise<string> => {
+      return createHmac('sha256', secret).update(message).digest('hex');
+    };
+    ```
+    The function signature must match `(message: string, secret: string) => Promise<string>`. The return value must be a hex-encoded string.
+  </Step>
+  <Step title="Pass it to your client constructor">
+    ```typescript
+    import { RestClient, FuturesClientV2, WebsocketClient } from 'bitmart-api';
+
+    const restClient = new RestClient({
+      apiKey: process.env.API_KEY,
+      apiSecret: process.env.API_SECRET,
+      apiMemo: process.env.API_MEMO,
+      customSignMessageFn,
+    });
+
+    const wsClient = new WebsocketClient({
+      apiKey: process.env.API_KEY,
+      apiSecret: process.env.API_SECRET,
+      apiMemo: process.env.API_MEMO,
+      customSignMessageFn,
+    });
+    ```
+    Pass the same function object to as many client instances as you like.
+  </Step>
+</Steps>
+
+---
+
+## Performance Recommendation
+
+<Tip>
+  If you are running a production Node.js trading bot that places a high volume of orders — market-making, arbitrage, or grid strategies — enable custom signing with `createHmac`. The Web Crypto API involves async key import on every call, which adds measurable overhead at scale. Node.js's `createHmac` is a synchronous C++ binding wrapped in a trivial async function here, and it runs significantly faster. This is especially relevant if your bot places hundreds of orders per minute or runs multiple client instances concurrently.
+</Tip>

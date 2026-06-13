@@ -1,0 +1,722 @@
+---
+title: "Futures Order Management REST API Reference"
+sidebarTitle: "Orders"
+description: "Place, modify, cancel, and query BitMart futures orders: open orders, order history, trade fills, and the dead man's switch using FuturesClientV2."
+---
+
+The `FuturesClientV2` order management endpoints let you submit new futures orders, modify or cancel existing ones, and retrieve the full lifecycle of your orders and trades. All methods on this page require authentication (SIGNED).
+
+## Setup
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+```
+
+---
+
+## Placing Orders
+
+### `submitFuturesOrder(params)`
+
+Places a new futures order. Supports limit and market order types with cross or isolated margin modes.
+
+**Signature**
+```typescript
+submitFuturesOrder(
+  params: SubmitFuturesOrderRequest,
+): Promise<APIResponse<FuturesOrderSubmitResult>>
+```
+
+**Parameters**
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField body="side" type="number" required>
+  Order side (determines position direction and open/close intent):
+
+  | Value | Meaning |
+  |---|---|
+  | `1` | `buy_open_long` — Open a long position |
+  | `2` | `buy_close_short` — Close a short position (buy back) |
+  | `3` | `sell_close_long` — Close a long position (sell) |
+  | `4` | `sell_open_short` — Open a short position |
+</ParamField>
+
+<ParamField body="type" type="string">
+  Order type: `limit` or `market`. Defaults to `limit`.
+</ParamField>
+
+<ParamField body="size" type="number" required>
+  Order quantity in contracts (integer).
+</ParamField>
+
+<ParamField body="price" type="string">
+  Limit price (required when `type` is `limit`).
+</ParamField>
+
+<ParamField body="leverage" type="string">
+  Leverage multiplier as a string (e.g. `"10"`). Required for new positions.
+</ParamField>
+
+<ParamField body="open_type" type="string">
+  Margin mode: `cross` or `isolated`.
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  Optional client-defined order ID for idempotency (max 36 characters).
+</ParamField>
+
+<ParamField body="mode" type="number">
+  Order mode (for hedge-mode accounts):
+  - `1` — GTC (Good Till Cancelled)
+  - `2` — FOK (Fill or Kill)
+  - `3` — IOC (Immediate or Cancel)
+  - `4` — Maker-only (Post Only)
+</ParamField>
+
+<ParamField body="preset_take_profit_price" type="string">
+  Optional take-profit trigger price to attach to the order.
+</ParamField>
+
+<ParamField body="preset_stop_loss_price" type="string">
+  Optional stop-loss trigger price to attach to the order.
+</ParamField>
+
+<ParamField body="preset_take_profit_price_type" type="number">
+  Price type for preset take-profit: `1` = last price, `2` = mark price.
+</ParamField>
+
+<ParamField body="preset_stop_loss_price_type" type="number">
+  Price type for preset stop-loss: `1` = last price, `2` = mark price.
+</ParamField>
+
+**Response fields (`FuturesOrderSubmitResult`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `order_id` | number | Exchange-assigned order ID |
+| `price` | string | Executed or queued price |
+
+<CodeGroup>
+```typescript Market order — open long
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const order = await client.submitFuturesOrder({
+  symbol: 'BTCUSDT',
+  type: 'market',
+  side: 1,          // buy_open_long
+  size: 1,
+  leverage: '10',
+  open_type: 'cross',
+});
+
+console.log('Order ID:', order.data.order_id);
+```
+
+```typescript Limit order — open short
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const order = await client.submitFuturesOrder({
+  symbol: 'BTCUSDT',
+  type: 'limit',
+  side: 4,           // sell_open_short
+  size: 2,
+  price: '70000',
+  leverage: '5',
+  open_type: 'isolated',
+  client_order_id: 'my-short-order-001',
+});
+
+console.log('Order ID:', order.data.order_id);
+```
+
+```typescript Limit order with preset TP/SL
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const order = await client.submitFuturesOrder({
+  symbol: 'ETHUSDT',
+  type: 'limit',
+  side: 1,              // buy_open_long
+  size: 5,
+  price: '3200',
+  leverage: '3',
+  open_type: 'cross',
+  preset_take_profit_price: '3500',
+  preset_take_profit_price_type: 1,  // last price
+  preset_stop_loss_price: '3000',
+  preset_stop_loss_price_type: 1,    // last price
+});
+
+console.log('Order with TP/SL:', order.data.order_id);
+```
+</CodeGroup>
+
+<Tip>
+  Use `side: 1` (buy_open_long) or `side: 4` (sell_open_short) to open new positions. Use `side: 2` (buy_close_short) or `side: 3` (sell_close_long) to close existing positions.
+</Tip>
+
+---
+
+### `updateFuturesLimitOrder(params)`
+
+Modifies the price and/or size of an existing open limit order.
+
+**Signature**
+```typescript
+updateFuturesLimitOrder(params: UpdateFuturesLimitOrderRequest): Promise<
+  APIResponse<{
+    order_id: number;
+    client_order_id?: string;
+  }>
+>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField body="order_id" type="number">
+  Exchange order ID to modify. Required if `client_order_id` is not provided.
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  Client order ID to modify. Required if `order_id` is not provided.
+</ParamField>
+
+<ParamField body="price" type="string">
+  New limit price.
+</ParamField>
+
+<ParamField body="size" type="string">
+  New order quantity (as a string).
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const result = await client.updateFuturesLimitOrder({
+  symbol: 'BTCUSDT',
+  order_id: 987654321,
+  price: '68000',  // New price
+  size: '3',       // New size
+});
+
+console.log('Modified order:', result.data.order_id);
+```
+</CodeGroup>
+
+---
+
+## Cancelling Orders
+
+### `cancelFuturesOrder(params)`
+
+Cancels a single open order by order ID or client order ID.
+
+**Signature**
+```typescript
+cancelFuturesOrder(
+  params: CancelFuturesOrderRequest,
+): Promise<APIResponse<any>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol (e.g. `BTCUSDT`).
+</ParamField>
+
+<ParamField body="order_id" type="string">
+  Exchange order ID to cancel.
+</ParamField>
+
+<ParamField body="client_order_id" type="string">
+  Client order ID to cancel.
+</ParamField>
+
+<CodeGroup>
+```typescript By order ID
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+await client.cancelFuturesOrder({
+  symbol: 'BTCUSDT',
+  order_id: '987654321',
+});
+
+console.log('Order cancelled');
+```
+
+```typescript By client order ID
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+await client.cancelFuturesOrder({
+  symbol: 'BTCUSDT',
+  client_order_id: 'my-short-order-001',
+});
+```
+</CodeGroup>
+
+---
+
+### `cancelAllFuturesOrders(params)`
+
+Cancels all open orders for a specific futures symbol in a single call.
+
+**Signature**
+```typescript
+cancelAllFuturesOrders(params: {
+  symbol: string;
+}): Promise<APIResponse<any>>
+```
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol to cancel all open orders for.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+await client.cancelAllFuturesOrders({ symbol: 'BTCUSDT' });
+console.log('All BTCUSDT orders cancelled');
+```
+</CodeGroup>
+
+---
+
+### `cancelAllFuturesOrdersAfter(params)`
+
+Sets a **dead man's switch** timer. If not refreshed within the specified timeout, all open orders for the symbol are automatically cancelled. Set `timeout: 0` to disable.
+
+**Signature**
+```typescript
+cancelAllFuturesOrdersAfter(params: {
+  timeout: number;
+  symbol: string;
+}): Promise<APIResponse<any>>
+```
+
+<ParamField body="timeout" type="number" required>
+  Timeout in seconds after which all orders will be cancelled. Set to `0` to disable the timer.
+</ParamField>
+
+<ParamField body="symbol" type="string" required>
+  Contract symbol.
+</ParamField>
+
+<Note>
+  Call this endpoint periodically (e.g. every 30 seconds) to act as a heartbeat. If your application loses connectivity and cannot refresh, orders will be cancelled automatically after the timeout expires.
+</Note>
+
+<CodeGroup>
+```typescript Enable (60-second timeout)
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Cancel all orders if not refreshed within 60 seconds
+await client.cancelAllFuturesOrdersAfter({
+  symbol: 'BTCUSDT',
+  timeout: 60,
+});
+```
+
+```typescript Disable
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Disable the dead man's switch
+await client.cancelAllFuturesOrdersAfter({
+  symbol: 'BTCUSDT',
+  timeout: 0,
+});
+```
+</CodeGroup>
+
+---
+
+## Querying Orders
+
+### `getFuturesAccountOrder(params)`
+
+Fetches the details of a single order by symbol and order ID.
+
+**Signature**
+```typescript
+getFuturesAccountOrder(
+  params: GetFuturesOrderRequest,
+): Promise<APIResponse<FuturesAccountOrder>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol.
+</ParamField>
+
+<ParamField query="order_id" type="string" required>
+  Exchange-assigned order ID.
+</ParamField>
+
+<ParamField query="account" type="string">
+  Account type filter: `futures` or `copy_trading`.
+</ParamField>
+
+<Expandable title="FuturesAccountOrder response fields">
+  | Field | Type | Description |
+  |---|---|---|
+  | `order_id` | string | Exchange order ID |
+  | `client_order_id` | string | Client-defined order ID |
+  | `symbol` | string | Contract symbol |
+  | `side` | 1\|2\|3\|4 | Order side |
+  | `type` | string | `limit`, `market`, `liquidate`, `bankruptcy`, `adl` |
+  | `size` | string | Order quantity |
+  | `price` | string | Order price |
+  | `deal_avg_price` | string | Average fill price |
+  | `deal_size` | string | Filled quantity |
+  | `leverage` | string | Leverage used |
+  | `open_type` | string | `cross` or `isolated` |
+  | `state` | 1\|2\|4 | Order state: `1`=active, `2`=filled, `4`=cancelled |
+  | `create_time` | number | Creation time (Unix ms) |
+  | `update_time` | number | Last update time (Unix ms) |
+</Expandable>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const order = await client.getFuturesAccountOrder({
+  symbol: 'BTCUSDT',
+  order_id: '987654321',
+});
+
+console.log(`State: ${order.data.state}, Filled: ${order.data.deal_size}/${order.data.size}`);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesAccountOrderHistory(params)`
+
+Returns completed (filled, cancelled, or expired) order history for a symbol.
+
+**Signature**
+```typescript
+getFuturesAccountOrderHistory(
+  params: FuturesAccountHistoricOrderRequest,
+): Promise<APIResponse<FuturesAccountHistoricOrder>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Contract symbol.
+</ParamField>
+
+<ParamField query="start_time" type="number">
+  Start time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="end_time" type="number">
+  End time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="account" type="string">
+  Account type filter.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const now = Date.now();
+const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+const history = await client.getFuturesAccountOrderHistory({
+  symbol: 'BTCUSDT',
+  start_time: oneWeekAgo,
+  end_time: now,
+});
+
+console.log('Order history:', JSON.stringify(history.data, null, 2));
+```
+</CodeGroup>
+
+---
+
+### `getFuturesAccountOpenOrders(params?)`
+
+Returns all currently open (active or partially filled) orders.
+
+**Signature**
+```typescript
+getFuturesAccountOpenOrders(
+  params?: FuturesAccountOpenOrdersRequest,
+): Promise<APIResponse<FuturesAccountOpenOrder[]>>
+```
+
+<ParamField query="symbol" type="string">
+  Filter by contract symbol.
+</ParamField>
+
+<ParamField query="type" type="string">
+  Filter by order type: `limit`, `market`, or `trailing`.
+</ParamField>
+
+<ParamField query="order_state" type="string">
+  Filter by state: `all` (default) or `partially_filled`.
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Maximum number of results to return.
+</ParamField>
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// All open orders
+const openOrders = await client.getFuturesAccountOpenOrders();
+
+// Partial fills on BTCUSDT only
+const partialOrders = await client.getFuturesAccountOpenOrders({
+  symbol: 'BTCUSDT',
+  order_state: 'partially_filled',
+});
+
+console.log(`Open: ${openOrders.data.length}, Partial: ${partialOrders.data.length}`);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesAccountTrades(params?)`
+
+Returns a list of your trade fills (executions) with PnL and fee information.
+
+**Signature**
+```typescript
+getFuturesAccountTrades(
+  params: FuturesAccountTradesRequest,
+): Promise<APIResponse<FuturesAccountTrade[]>>
+```
+
+<ParamField query="symbol" type="string">
+  Filter by contract symbol.
+</ParamField>
+
+<ParamField query="start_time" type="number">
+  Start time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="end_time" type="number">
+  End time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="order_id" type="number">
+  Filter by a specific order ID.
+</ParamField>
+
+<ParamField query="client_order_id" type="string">
+  Filter by client order ID.
+</ParamField>
+
+<ParamField query="account" type="string">
+  Account type filter.
+</ParamField>
+
+**Response fields (`FuturesAccountTrade`)**
+
+| Field | Type | Description |
+|---|---|---|
+| `trade_id` | string | Unique trade ID |
+| `order_id` | string | Parent order ID |
+| `symbol` | string | Contract symbol |
+| `side` | 1\|2\|3\|4 | Trade side |
+| `price` | string | Fill price |
+| `vol` | string | Fill quantity |
+| `exec_type` | string | `Taker` or `Maker` |
+| `profit` | boolean | Whether the trade was profitable |
+| `realised_profit` | string | Realised PnL |
+| `paid_fees` | string | Fees paid |
+| `create_time` | number | Trade time (Unix ms) |
+
+<CodeGroup>
+```typescript Example
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const trades = await client.getFuturesAccountTrades({
+  symbol: 'BTCUSDT',
+  start_time: Date.now() - 86400_000,
+  end_time: Date.now(),
+});
+
+let totalFees = 0;
+for (const trade of trades.data) {
+  totalFees += parseFloat(trade.paid_fees);
+  console.log(`${trade.exec_type} fill: ${trade.vol} @ ${trade.price}, PnL: ${trade.realised_profit}`);
+}
+console.log(`Total fees: ${totalFees.toFixed(4)} USDT`);
+```
+</CodeGroup>
+
+---
+
+### `getFuturesAccountTransactionHistory(params?)`
+
+Returns a detailed ledger of all account transactions including funding settlements, fee payments, deposits, and realised PnL transfers.
+
+**Signature**
+```typescript
+getFuturesAccountTransactionHistory(
+  params: FuturesAccountHistoricTransactionRequest,
+): Promise<APIResponse<FuturesAccountHistoricTransaction[]>>
+```
+
+<ParamField query="symbol" type="string">
+  Filter by contract symbol.
+</ParamField>
+
+<ParamField query="flow_type" type="number">
+  Transaction type filter:
+  - `0` — All
+  - `1` — Transfer
+  - `2` — Realised PnL
+  - `3` — Funding fee
+  - `4` — Commission
+  - `5` — Liquidation
+</ParamField>
+
+<ParamField query="start_time" type="number">
+  Start time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="end_time" type="number">
+  End time as Unix timestamp (ms).
+</ParamField>
+
+<ParamField query="page_size" type="number">
+  Number of records per page.
+</ParamField>
+
+<ParamField query="account" type="string">
+  Account type filter.
+</ParamField>
+
+<CodeGroup>
+```typescript All transactions
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const txHistory = await client.getFuturesAccountTransactionHistory({
+  symbol: 'BTCUSDT',
+  flow_type: 0,
+  page_size: 50,
+});
+
+for (const tx of txHistory.data) {
+  console.log(`[${tx.type}] ${tx.amount} ${tx.asset} at ${tx.time}`);
+}
+```
+
+```typescript Funding fees only
+import { FuturesClientV2 } from 'bitmart-api';
+
+const client = new FuturesClientV2({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const fundingFees = await client.getFuturesAccountTransactionHistory({
+  flow_type: 3,  // Funding fee
+  start_time: Date.now() - 7 * 86400_000,
+  end_time: Date.now(),
+});
+
+console.log(`Funding fee records: ${fundingFees.data.length}`);
+```
+</CodeGroup>

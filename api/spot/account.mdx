@@ -1,0 +1,718 @@
+---
+title: "Spot Account & Wallet REST API Reference"
+sidebarTitle: "Account"
+description: "Manage BitMart spot account balances, deposits, withdrawals, margin accounts, and fee rates using the Node.js/TypeScript SDK RestClient."
+---
+
+The BitMart account endpoints let you inspect wallet balances, retrieve deposit addresses, submit withdrawals, manage margin accounts, and query fee rates. All account endpoints require a valid API key, secret, and memo — initialize the `RestClient` with your credentials before calling any method on this page.
+
+## Setup
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: 'YOUR_API_KEY',
+  apiSecret: 'YOUR_API_SECRET',
+  apiMemo: 'YOUR_API_MEMO',
+});
+```
+
+<Note>
+  All methods on this page call authenticated endpoints. Requests without valid credentials will be rejected with a `401` error.
+</Note>
+
+---
+
+## Wallet Balances
+
+### `getAccountBalancesV1(params?)`
+
+Returns balances for all assets in your **funding** (main) account. Optionally filter to a single currency.
+
+```typescript
+getAccountBalancesV1(params?: {
+  currency?: string;
+}): Promise<APIResponse<{ wallet: AccountCurrencyBalanceV1[] }>>
+```
+
+<ParamField query="currency" type="string">
+  Optional. Filter results to a single currency, e.g. `"USDT"`.
+</ParamField>
+
+**Response — `AccountCurrencyBalanceV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `currency` | `string` | Asset symbol |
+| `name` | `string` | Asset full name |
+| `available` | `string` | Available (tradeable) balance |
+| `frozen` | `string` | Frozen (in-order) balance |
+
+<CodeGroup>
+```typescript Get All Funding Balances
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getAccountBalancesV1();
+for (const asset of response.data.wallet) {
+  if (parseFloat(asset.available) > 0) {
+    console.log(`${asset.currency}: available=${asset.available}, frozen=${asset.frozen}`);
+  }
+}
+```
+
+```typescript Get Single Currency Balance
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getAccountBalancesV1({ currency: 'USDT' });
+const usdt = response.data.wallet[0];
+console.log(`USDT available: ${usdt.available}`);
+```
+</CodeGroup>
+
+---
+
+### `getAccountCurrenciesV1(params?)`
+
+Returns metadata for available currencies including network, contract address, and withdrawal limits. This endpoint does **not** require authentication.
+
+```typescript
+getAccountCurrenciesV1(params?: {
+  currencies?: string;
+}): Promise<APIResponse<{ currencies: AccountCurrencyV1[] }>>
+```
+
+<ParamField query="currencies" type="string">
+  Optional. Comma-separated list of currency symbols to filter, e.g. `"BTC,ETH,USDT"`.
+</ParamField>
+
+**Response — `AccountCurrencyV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `currency` | `string` | Currency symbol |
+| `name` | `string` | Full name |
+| `network` | `string` | Blockchain network |
+| `contract_address` | `string \| null` | Token contract address |
+| `withdraw_enabled` | `boolean` | Is withdrawal enabled |
+| `deposit_enabled` | `boolean` | Is deposit enabled |
+| `withdraw_minsize` | `string \| null` | Minimum withdrawal size |
+| `withdraw_minfee` | `string \| null` | Minimum withdrawal fee |
+| `withdraw_fee` | `string \| null` | Withdrawal fee amount |
+| `withdraw_maxsize` | `string \| null` | Maximum withdrawal size |
+
+<CodeGroup>
+```typescript List Currencies
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient();
+
+const response = await client.getAccountCurrenciesV1({
+  currencies: 'BTC,ETH,USDT',
+});
+
+for (const c of response.data.currencies) {
+  console.log(`${c.currency} (${c.network}): withdraw fee=${c.withdraw_fee}`);
+}
+```
+</CodeGroup>
+
+---
+
+### `getSpotWalletBalanceV1()`
+
+Returns balances for all assets in your **spot trading** wallet. This is separate from the funding account.
+
+```typescript
+getSpotWalletBalanceV1(): Promise<APIResponse<{ wallet: SpotWalletBalanceV1[] }>>
+```
+
+**Response — `SpotWalletBalanceV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Currency symbol |
+| `name` | `string` | Currency full name |
+| `available` | `string` | Available balance |
+| `frozen` | `string` | Frozen (in-order) balance |
+
+<CodeGroup>
+```typescript Get Spot Wallet Balances
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getSpotWalletBalanceV1();
+const nonZero = response.data.wallet.filter(
+  (w) => parseFloat(w.available) > 0 || parseFloat(w.frozen) > 0,
+);
+console.log('Non-zero spot balances:', nonZero);
+```
+</CodeGroup>
+
+---
+
+## Deposits
+
+### `getAccountDepositAddressV1(params)`
+
+Returns the deposit address (and optional memo/tag) for a specific currency.
+
+```typescript
+getAccountDepositAddressV1(params: {
+  currency: string;
+}): Promise<APIResponse<AccountDepositAddressV1>>
+```
+
+<ParamField query="currency" type="string" required>
+  Currency symbol to get deposit address for, e.g. `"BTC"`.
+</ParamField>
+
+**Response — `AccountDepositAddressV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `currency` | `string` | Currency symbol |
+| `chain` | `string` | Blockchain network name |
+| `address` | `string` | Deposit wallet address |
+| `address_memo` | `string` | Memo / tag (if required by chain) |
+
+<Note>
+  Some networks (e.g. XRP, EOS, ATOM) require both `address` and `address_memo` to correctly route your deposit. Always check `address_memo` before sending.
+</Note>
+
+<CodeGroup>
+```typescript Get Deposit Address
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getAccountDepositAddressV1({ currency: 'USDT' });
+const { address, address_memo, chain } = response.data;
+
+console.log(`USDT deposit address (${chain}): ${address}`);
+if (address_memo) {
+  console.log(`Memo required: ${address_memo}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Withdrawals
+
+### `getAccountWithdrawQuotaV1(params)`
+
+Returns withdrawal quota and fee information for a given currency.
+
+```typescript
+getAccountWithdrawQuotaV1(params: {
+  currency: string;
+}): Promise<APIResponse<AccountWithdrawQuotaV1>>
+```
+
+<ParamField query="currency" type="string" required>
+  Currency to query, e.g. `"ETH"`.
+</ParamField>
+
+**Response — `AccountWithdrawQuotaV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `today_available_withdraw_BTC` | `string` | Remaining daily withdraw quota in BTC |
+| `min_withdraw` | `string` | Minimum withdrawal amount |
+| `withdraw_precision` | `number` | Decimal precision for withdrawal amounts |
+| `withdraw_fee` | `string` | Fixed withdrawal fee |
+
+<CodeGroup>
+```typescript Check Withdrawal Quota
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getAccountWithdrawQuotaV1({ currency: 'ETH' });
+const quota = response.data;
+
+console.log(`Min withdrawal: ${quota.min_withdraw} ETH`);
+console.log(`Fee: ${quota.withdraw_fee} ETH`);
+console.log(`Today's remaining BTC-equivalent quota: ${quota.today_available_withdraw_BTC}`);
+```
+</CodeGroup>
+
+---
+
+### `submitWithdrawalV1(params)`
+
+Submits a withdrawal request to an external address.
+
+```typescript
+submitWithdrawalV1(params: SubmitWithdrawalV1Request): Promise<APIResponse<{ withdrawal_id: string }>>
+```
+
+<ParamField body="currency" type="string" required>
+  Currency to withdraw, e.g. `"USDT"`.
+</ParamField>
+
+<ParamField body="amount" type="string" required>
+  Withdrawal amount as a string.
+</ParamField>
+
+<ParamField body="destination" type="string" required>
+  Must be the literal string `"To Digital Address"`.
+</ParamField>
+
+<ParamField body="address" type="string" required>
+  Destination wallet address.
+</ParamField>
+
+<ParamField body="address_memo" type="string">
+  Optional memo / tag for networks that require it.
+</ParamField>
+
+<Warning>
+  Withdrawal requests are irreversible. Double-check `address` and `address_memo` before calling this method. Sending to the wrong address will result in permanent loss of funds.
+</Warning>
+
+<CodeGroup>
+```typescript Submit Withdrawal
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.submitWithdrawalV1({
+  currency: 'USDT',
+  amount: '100',
+  destination: 'To Digital Address',
+  address: '0xYourEthereumWalletAddress',
+});
+
+console.log('Withdrawal submitted. ID:', response.data.withdrawal_id);
+```
+</CodeGroup>
+
+---
+
+### `getWithdrawAddressList()`
+
+Returns the list of saved/whitelisted withdrawal addresses associated with your account.
+
+```typescript
+getWithdrawAddressList(): Promise<APIResponse<{ list: WithdrawAddressListItem[] }>>
+```
+
+**Response — `WithdrawAddressListItem` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `currency` | `string` | Currency symbol |
+| `network` | `string` | Blockchain network |
+| `address` | `string` | Wallet address |
+| `memo` | `string` | Memo / tag |
+| `remark` | `string` | User-defined label |
+| `addressType` | `number` | Address type flag |
+| `verifyStatus` | `number` | Verification status |
+
+<CodeGroup>
+```typescript Get Saved Withdraw Addresses
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getWithdrawAddressList();
+for (const addr of response.data.list) {
+  console.log(`${addr.currency} (${addr.network}): ${addr.address} — ${addr.remark}`);
+}
+```
+</CodeGroup>
+
+---
+
+## Transaction History
+
+### `getDepositWithdrawHistoryV2(params?)`
+
+Returns a paginated history of deposit and withdrawal transactions.
+
+```typescript
+getDepositWithdrawHistoryV2(params?: DepositWithdrawHistoryV2Request): Promise<
+  APIResponse<{ records: AccountDepositWithdrawHistoryV2[] }>
+>
+```
+
+<ParamField query="operation_type" type="string" required>
+  Filter by `"deposit"` or `"withdraw"`.
+</ParamField>
+
+<ParamField query="currency" type="string">
+  Optional. Filter to a specific currency.
+</ParamField>
+
+<ParamField query="start_time" type="number">
+  Start of time range in milliseconds.
+</ParamField>
+
+<ParamField query="end_time" type="number">
+  End of time range in milliseconds.
+</ParamField>
+
+<ParamField query="N" type="number" required>
+  Number of records to return.
+</ParamField>
+
+**Response — `AccountDepositWithdrawHistoryV2` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `withdraw_id` | `string` | Withdrawal record ID |
+| `deposit_id` | `string` | Deposit record ID |
+| `operation_type` | `string` | `"deposit"` or `"withdraw"` |
+| `currency` | `string` | Currency symbol |
+| `apply_time` | `number` | Request time (ms) |
+| `arrival_amount` | `string` | Amount credited |
+| `fee` | `string` | Fee charged |
+| `status` | `number` | Transaction status code |
+| `address` | `string` | On-chain address |
+| `tx_id` | `string` | Blockchain transaction hash |
+
+<CodeGroup>
+```typescript Get Recent Withdrawal History
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getDepositWithdrawHistoryV2({
+  operation_type: 'withdraw',
+  N: 20,
+});
+
+for (const record of response.data.records) {
+  console.log(`[${record.currency}] ${record.arrival_amount} — status: ${record.status} — tx: ${record.tx_id}`);
+}
+```
+</CodeGroup>
+
+---
+
+### `getDepositWithdrawDetailV1(params)`
+
+Returns the details of a single deposit or withdrawal transaction by its ID.
+
+```typescript
+getDepositWithdrawDetailV1(params: {
+  id: string;
+}): Promise<APIResponse<{ record: AccountDepositWithdrawHistoryV2 }>>
+```
+
+<ParamField query="id" type="string" required>
+  The transaction ID (from `withdraw_id` or `deposit_id`).
+</ParamField>
+
+<CodeGroup>
+```typescript Get Transaction Detail
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getDepositWithdrawDetailV1({
+  id: '1234567890',
+});
+
+const record = response.data.record;
+console.log(`Type: ${record.operation_type}`);
+console.log(`Amount: ${record.arrival_amount} ${record.currency}`);
+console.log(`Status: ${record.status}`);
+console.log(`TX hash: ${record.tx_id}`);
+```
+</CodeGroup>
+
+---
+
+## Margin Account
+
+### `getMarginAccountDetailsV1(params?)`
+
+Returns isolated margin account details for all or a specific trading pair.
+
+```typescript
+getMarginAccountDetailsV1(params?: {
+  symbol?: string;
+}): Promise<APIResponse<{ symbols: SymbolMarginAccountDetailsV1[] }>>
+```
+
+<ParamField query="symbol" type="string">
+  Optional. Filter to a specific symbol, e.g. `"BTC_USDT"`.
+</ParamField>
+
+**Response — `SymbolMarginAccountDetailsV1` key fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `symbol` | `string` | Trading pair |
+| `risk_rate` | `string` | Current risk rate |
+| `risk_level` | `string` | Risk level classification |
+| `buy_enabled` | `boolean` | Whether new buys are enabled |
+| `sell_enabled` | `boolean` | Whether new sells are enabled |
+| `liquidate_price` | `string` | Liquidation trigger price |
+| `base` | `MarginV1BaseQuote` | Base asset margin info |
+| `quote` | `MarginV1BaseQuote` | Quote asset margin info |
+
+<CodeGroup>
+```typescript Get Margin Account Details
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getMarginAccountDetailsV1({ symbol: 'BTC_USDT' });
+const account = response.data.symbols[0];
+
+console.log(`Risk rate: ${account.risk_rate}`);
+console.log(`Liquidation price: ${account.liquidate_price}`);
+console.log(`Base available: ${account.base.available}`);
+console.log(`Quote available: ${account.quote.available}`);
+```
+</CodeGroup>
+
+---
+
+### `submitMarginAssetTransferV1(params)`
+
+Transfers assets between your spot wallet and an isolated margin account.
+
+```typescript
+submitMarginAssetTransferV1(params: SubmitMarginTransferV1Request): Promise<APIResponse<{ transfer_id: string }>>
+```
+
+<ParamField body="symbol" type="string" required>
+  The isolated margin trading pair, e.g. `"BTC_USDT"`.
+</ParamField>
+
+<ParamField body="currency" type="string" required>
+  Asset to transfer, e.g. `"USDT"`.
+</ParamField>
+
+<ParamField body="amount" type="string" required>
+  Amount to transfer.
+</ParamField>
+
+<ParamField body="side" type="string" required>
+  `"in"` to transfer from spot into margin; `"out"` to withdraw from margin back to spot.
+</ParamField>
+
+<CodeGroup>
+```typescript Transfer to Margin Account
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Move 500 USDT from spot wallet into BTC_USDT isolated margin
+const response = await client.submitMarginAssetTransferV1({
+  symbol: 'BTC_USDT',
+  currency: 'USDT',
+  amount: '500',
+  side: 'in',
+});
+
+console.log('Transfer ID:', response.data.transfer_id);
+```
+
+```typescript Withdraw from Margin Account
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+// Withdraw 200 USDT from BTC_USDT margin back to spot
+const response = await client.submitMarginAssetTransferV1({
+  symbol: 'BTC_USDT',
+  currency: 'USDT',
+  amount: '200',
+  side: 'out',
+});
+
+console.log('Transfer ID:', response.data.transfer_id);
+```
+</CodeGroup>
+
+---
+
+## Fee Rates
+
+### `getBasicSpotFeeRateV1()`
+
+Returns the base fee rate tier for your account (maker/taker by tier level).
+
+```typescript
+getBasicSpotFeeRateV1(): Promise<APIResponse<BasicFeeRateV1>>
+```
+
+**Response — `BasicFeeRateV1` key fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `user_rate_type` | `0 \| 1 \| 2` | Fee schedule type |
+| `level` | `string` | Fee tier level |
+| `taker_fee_rate_A` | `string` | Taker fee for class A pairs |
+| `maker_fee_rate_A` | `string` | Maker fee for class A pairs |
+| `taker_fee_rate_B` | `string` | Taker fee for class B pairs |
+| `maker_fee_rate_B` | `string` | Maker fee for class B pairs |
+
+<CodeGroup>
+```typescript Get Base Fee Rate
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getBasicSpotFeeRateV1();
+const fee = response.data;
+
+console.log(`Fee tier: ${fee.level}`);
+console.log(`Class A — Taker: ${fee.taker_fee_rate_A}, Maker: ${fee.maker_fee_rate_A}`);
+console.log(`Class B — Taker: ${fee.taker_fee_rate_B}, Maker: ${fee.maker_fee_rate_B}`);
+```
+</CodeGroup>
+
+---
+
+### `getActualSpotTradeFeeRateV1(params)`
+
+Returns the actual effective fee rates for a specific trading pair on your account, accounting for any promotions or pair-specific overrides.
+
+```typescript
+getActualSpotTradeFeeRateV1(params: {
+  symbol: string;
+}): Promise<APIResponse<ActualFeeRateV1>>
+```
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol, e.g. `"BTC_USDT"`.
+</ParamField>
+
+**Response — `ActualFeeRateV1` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `symbol` | `string` | Trading pair |
+| `buy_taker_fee_rate` | `string` | Taker fee rate for buy orders |
+| `sell_taker_fee_rate` | `string` | Taker fee rate for sell orders |
+| `buy_maker_fee_rate` | `string` | Maker fee rate for buy orders |
+| `sell_maker_fee_rate` | `string` | Maker fee rate for sell orders |
+
+<CodeGroup>
+```typescript Get Actual Trade Fee Rate
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+const response = await client.getActualSpotTradeFeeRateV1({ symbol: 'BTC_USDT' });
+const fee = response.data;
+
+console.log(`BTC_USDT effective fees:`);
+console.log(`  Buy  — taker: ${fee.buy_taker_fee_rate}, maker: ${fee.buy_maker_fee_rate}`);
+console.log(`  Sell — taker: ${fee.sell_taker_fee_rate}, maker: ${fee.sell_maker_fee_rate}`);
+```
+</CodeGroup>
+
+---
+
+## Complete Account Overview Example
+
+<CodeGroup>
+```typescript Full Account Overview
+import { RestClient } from 'bitmart-api';
+
+async function accountOverview() {
+  const client = new RestClient({
+    apiKey: process.env.API_KEY!,
+    apiSecret: process.env.API_SECRET!,
+    apiMemo: process.env.API_MEMO!,
+  });
+
+  const [spotWallet, feeRate, withdrawAddresses] = await Promise.all([
+    client.getSpotWalletBalanceV1(),
+    client.getBasicSpotFeeRateV1(),
+    client.getWithdrawAddressList(),
+  ]);
+
+  // Print non-zero spot balances
+  console.log('=== Spot Wallet ===');
+  for (const asset of spotWallet.data.wallet) {
+    if (parseFloat(asset.available) > 0) {
+      console.log(`  ${asset.id}: ${asset.available} available, ${asset.frozen} frozen`);
+    }
+  }
+
+  // Print fee tier
+  console.log('\n=== Fee Tier ===');
+  console.log(`  Level: ${feeRate.data.level}`);
+  console.log(`  Taker A: ${feeRate.data.taker_fee_rate_A}`);
+  console.log(`  Maker A: ${feeRate.data.maker_fee_rate_A}`);
+
+  // Print saved addresses
+  console.log('\n=== Saved Withdraw Addresses ===');
+  for (const addr of withdrawAddresses.data.list) {
+    console.log(`  ${addr.currency} (${addr.network}): ${addr.address}`);
+  }
+}
+
+await accountOverview();
+```
+</CodeGroup>

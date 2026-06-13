@@ -1,0 +1,220 @@
+---
+title: "Authenticate with the BitMart REST & WebSocket API"
+sidebarTitle: "Authentication"
+description: "Learn how BitMart API keys, secrets, and the memo field work together, and how the SDK signs requests with HMAC-SHA256 automatically."
+---
+
+Every private endpoint on BitMart — placing orders, reading balances, streaming account updates — requires a signed request. The SDK handles signing automatically once you supply your three credentials at client construction time. This page explains what each credential does, where to obtain them, and how to use them safely.
+
+## How BitMart Authentication Works
+
+BitMart uses **HMAC-SHA256** to authenticate REST and WebSocket requests. For each signed request, the SDK builds a message in the form:
+
+```
+{timestamp}#{apiMemo}#{requestParams}
+```
+
+It then signs that string with your `apiSecret` and attaches the result as the `X-BM-SIGN` header, alongside `X-BM-KEY` (your API key) and `X-BM-TIMESTAMP`.
+
+The signature is computed using the **Web Crypto API**, which means the SDK works in both Node.js and browser environments without any additional dependencies. If you need higher throughput, you can substitute Node.js's native `createHmac` via the `customSignMessageFn` option (see [Custom Signing](#custom-signing) below).
+
+## The Three Required Credentials
+
+| Field | Client option | Description |
+|---|---|---|
+| API Key | `apiKey` | A unique identifier for your API integration, generated on the BitMart dashboard. |
+| API Secret | `apiSecret` | The secret used to produce the HMAC-SHA256 signature. Never share or expose this value. |
+| API Memo | `apiMemo` | A human-readable label **you choose** when creating the API key. It acts as an additional factor in the signature and must match exactly what you set on the dashboard. |
+
+<Note>
+  The **Memo** is not a password — it is simply the label you typed when you created the API key on BitMart. It must be passed to the SDK exactly as you entered it.
+</Note>
+
+## Obtaining API Credentials
+
+1. Log in to [https://www.bitmart.com/api-settings](https://www.bitmart.com/api-settings).
+2. Click **Create API** and enter a Memo (any descriptive label, e.g. `my-trading-bot`).
+3. Set the required IP allowlist and permissions (read-only, trading, withdrawal, etc.).
+4. Copy the **API Key** and **API Secret** — the secret is only shown once.
+5. Store all three values (`apiKey`, `apiSecret`, `apiMemo`) securely before closing the page.
+
+<Warning>
+  BitMart displays your API Secret **only once** at creation time. If you lose it, you must delete the key and create a new one.
+</Warning>
+
+## Initialising the REST Client
+
+Pass your credentials to `RestClient` at construction time. The SDK validates at construction that all three values are present — passing only one or two will throw immediately.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+});
+```
+
+## Initialising the Futures Client
+
+`FuturesClientV2` accepts the same credentials and additionally supports a `demoTrading` flag to route requests to BitMart's simulated futures environment.
+
+```typescript
+import { FuturesClientV2 } from 'bitmart-api';
+
+// Live trading
+const futuresClient = new FuturesClientV2({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+});
+
+// Simulated / demo trading (V2 Futures only)
+const demoClient = new FuturesClientV2({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+  demoTrading: true,
+});
+```
+
+<Info>
+  The demo environment uses the same API keys as production. Only the base URL changes: `https://demo-api-cloud-v2.bitmart.com` instead of `https://api-cloud-v2.bitmart.com`.
+</Info>
+
+## Initialising the WebSocket Client
+
+`WebsocketClient` accepts the same credentials. Private streams (account orders, positions, balances) require credentials; public streams (tickers, depth, klines) do not.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+// Public streams — no credentials needed
+const publicWs = new WebsocketClient();
+
+// Private streams — credentials required
+const privateWs = new WebsocketClient({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+});
+
+privateWs.on('authenticated', (data) => {
+  console.log('WebSocket authenticated:', data);
+});
+
+privateWs.on('update', (data) => {
+  console.log('Private data:', JSON.stringify(data, null, 2));
+});
+
+// Subscribe to private spot order updates
+privateWs.subscribe('spot/user/order:BTC_USDT', 'spot');
+```
+
+## Public vs Private Endpoints
+
+Not every endpoint requires authentication. Public endpoints return market data that BitMart makes freely available.
+
+| Type | Requires credentials | Examples |
+|---|---|---|
+| **Public** | No | `getSpotTickersV3`, `getSpotHistoryKlineV3`, `getFuturesTicker` |
+| **Private** | Yes | `getAccountBalancesV1`, `submitSpotOrderV2`, `getFuturesAccountAssets` |
+
+You can create a `RestClient` **without credentials** and it will work perfectly for public endpoints:
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+// Public-only client — no credentials required
+const client = new RestClient();
+
+const tickers = await client.getSpotTickersV3();
+console.log(tickers);
+```
+
+Calling a private endpoint on an unauthenticated client will throw an error at the time of the request.
+
+## The `recvWindow` Parameter
+
+The `recvWindow` value (in milliseconds) defines how long a signed request stays valid after it is generated. Requests that arrive at BitMart's servers outside this window are rejected to prevent replay attacks.
+
+- **Default**: `5000` ms (5 seconds)
+- **Global override**: set `recvWindow` in the client options to change the default for all calls
+- **Per-call override**: pass `recvWindow` inside a method's parameter object to override for that call only
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+// Change the global default to 10 seconds
+const client = new RestClient({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+  recvWindow: 10000,
+});
+
+// Override to 3 seconds for this specific call
+const balances = await client.getAccountBalancesV1({ recvWindow: 3000 });
+```
+
+<Tip>
+  If you receive `timestamp` or `recv_window` errors, ensure your system clock is synchronised (e.g. via NTP) and consider increasing `recvWindow` slightly.
+</Tip>
+
+## Custom Signing
+
+By default the SDK uses the Web Crypto API to compute HMAC-SHA256 signatures. In high-frequency scenarios you can inject Node.js's native `createHmac` via `customSignMessageFn` for lower latency:
+
+```typescript
+import { createHmac } from 'crypto';
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+  customSignMessageFn: async (message: string, secret: string) => {
+    return createHmac('sha256', secret).update(message).digest('hex');
+  },
+});
+```
+
+<Note>
+  Custom signing with `createHmac` is Node.js-only. Do not use it in browser or edge-runtime builds where the `crypto` built-in is unavailable.
+</Note>
+
+## Security Best Practices
+
+<Note>
+  **Never hard-code API credentials in your source code.** If a key is accidentally committed to version control it should be revoked immediately on the BitMart dashboard.
+</Note>
+
+Follow these guidelines to keep your credentials safe:
+
+**Use environment variables** — store credentials outside your codebase and load them at runtime:
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: process.env.BITMART_API_KEY!,
+  apiSecret: process.env.BITMART_API_SECRET!,
+  apiMemo: process.env.BITMART_API_MEMO!,
+});
+```
+
+For local development, use a `.env` file with a package such as `dotenv` — but make sure `.env` is listed in your `.gitignore`:
+
+```bash
+# .env  (never commit this file)
+BITMART_API_KEY=your_api_key_here
+BITMART_API_SECRET=your_api_secret_here
+BITMART_API_MEMO=your_api_memo_here
+```
+
+**Apply the principle of least privilege** — create separate API keys for different purposes (e.g. one read-only key for monitoring, one trading key for order execution) and restrict each key to the minimum permissions it needs.
+
+**Restrict by IP address** — the BitMart API settings page lets you allowlist specific IP addresses for each key. Enabling this prevents a stolen key from being used outside your infrastructure.
+
+**Rotate keys regularly** — treat API keys like passwords: rotate them periodically and immediately after any potential exposure.

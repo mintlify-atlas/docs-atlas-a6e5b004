@@ -1,0 +1,504 @@
+---
+title: "Sub-Account Management REST API Reference"
+sidebarTitle: "Sub-Accounts"
+description: "Manage BitMart sub-accounts via REST: transfer funds between accounts, query balances, list sub-accounts, and retrieve broker rebate reports."
+---
+
+The BitMart Sub-Account API gives master accounts programmatic control over their sub-account hierarchy — including spot fund transfers in both directions, balance inspection, and full transfer history. A separate broker rebate endpoint is also available for API broker partners. All methods are accessed via the `RestClient` and require master account credentials.
+
+<Note>
+  All sub-account endpoints require **master account** API keys. Sub-account-initiated transfers (those with `Sub` in their name that originate from the sub-account) use the sub-account's own API keys. Ensure the key used has the appropriate **Transfer** permission enabled.
+</Note>
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const client = new RestClient({
+  apiKey: 'MASTER_API_KEY',
+  apiSecret: 'MASTER_API_SECRET',
+  apiMemo: 'MASTER_API_MEMO',
+});
+```
+
+---
+
+## Transfer Endpoints
+
+### `submitMainTransferMainToSubV1(params)`
+
+Initiates a spot asset transfer from the **master account** to a specified sub-account. Called from the master account.
+
+**Signature**
+
+```typescript
+submitMainTransferMainToSubV1(
+  params: SubmitSubTransferV1Request,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface SubmitSubTransferV1Request {
+  requestNo: string;  // unique request identifier
+  amount: string;     // transfer amount, e.g. "50"
+  currency: string;   // asset symbol, e.g. "USDT"
+  subAccount: string; // sub-account name/ID
+}
+```
+
+**Example**
+
+```typescript
+await client.submitMainTransferMainToSubV1({
+  requestNo: 'transfer-001',
+  amount: '100',
+  currency: 'USDT',
+  subAccount: 'sub_trader_01',
+});
+```
+
+---
+
+### `submitMainTransferSubToMainV1(params)`
+
+Transfers spot assets from a **sub-account back to the master account**. This variant is initiated from the master account on behalf of the sub-account.
+
+**Signature**
+
+```typescript
+submitMainTransferSubToMainV1(
+  params: SubmitSubTransferV1Request,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface SubmitSubTransferV1Request {
+  requestNo: string;
+  amount: string;
+  currency: string;
+  subAccount: string; // the sub-account to pull funds from
+}
+```
+
+**Example**
+
+```typescript
+await client.submitMainTransferSubToMainV1({
+  requestNo: 'recall-001',
+  amount: '50',
+  currency: 'USDT',
+  subAccount: 'sub_trader_01',
+});
+```
+
+---
+
+### `submitSubTransferSubToMainV1(params)`
+
+Transfers spot assets from the current (sub) account to the master account. This method is called using the **sub-account's own API keys**.
+
+<Note>
+  This endpoint must be called with the **sub-account's** API key and secret, not the master account credentials.
+</Note>
+
+**Signature**
+
+```typescript
+submitSubTransferSubToMainV1(
+  params: SubmitSubTransferSubToMainV1Request,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface SubmitSubTransferSubToMainV1Request {
+  requestNo: string;
+  amount: string;
+  currency: string;
+  // No subAccount field — identity comes from the API key used
+}
+```
+
+**Example**
+
+```typescript
+// Using sub-account credentials
+const subClient = new RestClient({
+  apiKey: 'SUB_API_KEY',
+  apiSecret: 'SUB_API_SECRET',
+  apiMemo: 'SUB_API_MEMO',
+});
+
+await subClient.submitSubTransferSubToMainV1({
+  requestNo: 'sub-to-main-001',
+  amount: '25',
+  currency: 'USDT',
+});
+```
+
+---
+
+### `submitMainTransferSubToSubV1(params)`
+
+Transfers spot assets between two sub-accounts. Initiated from the **master account**; both source and destination accounts must be specified.
+
+**Signature**
+
+```typescript
+submitMainTransferSubToSubV1(
+  params: SubmitMainTransferSubToSubV1Request,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface SubmitMainTransferSubToSubV1Request {
+  requestNo: string;
+  amount: string;
+  currency: string;
+  fromAccount: string; // source sub-account name
+  toAccount: string;   // destination sub-account name
+}
+```
+
+**Example**
+
+```typescript
+await client.submitMainTransferSubToSubV1({
+  requestNo: 'sub-sub-transfer-001',
+  amount: '10',
+  currency: 'BTC',
+  fromAccount: 'sub_trader_01',
+  toAccount: 'sub_trader_02',
+});
+```
+
+---
+
+### `submitSubTransferSubToSubV1(params)`
+
+Transfers spot assets from the authenticated sub-account to another sub-account within the same master account hierarchy. Called with **sub-account API keys**.
+
+<Note>
+  This endpoint must be called with the **sub-account's** API key, not the master account credentials.
+</Note>
+
+**Signature**
+
+```typescript
+submitSubTransferSubToSubV1(
+  params: SubmitSubTransferV1Request,
+): Promise<APIResponse<{}>>
+```
+
+**Request type**
+
+```typescript
+interface SubmitSubTransferV1Request {
+  requestNo: string;
+  amount: string;
+  currency: string;
+  subAccount: string; // the destination sub-account
+}
+```
+
+**Example**
+
+```typescript
+const subClient = new RestClient({
+  apiKey: 'SUB_API_KEY',
+  apiSecret: 'SUB_API_SECRET',
+  apiMemo: 'SUB_API_MEMO',
+});
+
+await subClient.submitSubTransferSubToSubV1({
+  requestNo: 'sub-sub-self-001',
+  amount: '5',
+  currency: 'ETH',
+  subAccount: 'sub_trader_02',
+});
+```
+
+---
+
+## Transfer History
+
+### `getSubTransfersV1(params)`
+
+Returns paginated transfer history for sub-accounts as seen from the master account. Supports filtering by sub-account name.
+
+**Signature**
+
+```typescript
+getSubTransfersV1(
+  params: SubTransfersV1Request,
+): Promise<APIResponse<{ total: number; historyList: SubTransferRow[] }>>
+```
+
+**Request type**
+
+```typescript
+interface SubTransfersV1Request {
+  moveType: 'spot to spot'; // currently only spot-to-spot transfers
+  N: number;                // number of records to return
+  accountName?: string;     // filter by sub-account name
+}
+```
+
+**Response type**
+
+```typescript
+interface SubTransferRow {
+  fromAccount: string;
+  fromWalletType: 'spot';
+  toAccount: string;
+  toWalletType: 'spot';
+  currency: string;
+  amount: string;
+  submissionTime: number; // Unix ms
+}
+```
+
+**Example**
+
+```typescript
+const transfers = await client.getSubTransfersV1({
+  moveType: 'spot to spot',
+  N: 50,
+  accountName: 'sub_trader_01',
+});
+
+transfers.data.historyList.forEach((row) => {
+  console.log(`${row.fromAccount} → ${row.toAccount}: ${row.amount} ${row.currency}`);
+});
+```
+
+---
+
+### `getAccountSubTransfersV1(params)`
+
+Returns the transfer history as seen from the authenticated account (works for both master and sub-accounts).
+
+**Signature**
+
+```typescript
+getAccountSubTransfersV1(
+  params: AccountSubTransfersV1Request,
+): Promise<APIResponse<{ total: number; historyList: SubTransferRow[] }>>
+```
+
+**Request type**
+
+```typescript
+interface AccountSubTransfersV1Request {
+  moveType: 'spot to spot';
+  N: number; // number of records to return
+}
+```
+
+**Example**
+
+```typescript
+const history = await client.getAccountSubTransfersV1({
+  moveType: 'spot to spot',
+  N: 100,
+});
+console.log(`Total transfers: ${history.data.total}`);
+```
+
+---
+
+## Balances
+
+### `getSubSpotWalletBalancesV1(params)`
+
+Returns the spot wallet balances for a specific sub-account. Called from the master account.
+
+**Signature**
+
+```typescript
+getSubSpotWalletBalancesV1(
+  params: SubSpotWalletBalancesV1Request,
+): Promise<APIResponse<{ wallet: AccountCurrencyBalanceV1[] }>>
+```
+
+**Request type**
+
+```typescript
+interface SubSpotWalletBalancesV1Request {
+  subAccount: string;  // sub-account name
+  currency?: string;   // optional: filter by a single currency
+}
+```
+
+**Example**
+
+<CodeGroup>
+```typescript All Balances
+const balances = await client.getSubSpotWalletBalancesV1({
+  subAccount: 'sub_trader_01',
+});
+console.log(balances.data.wallet);
+```
+
+```typescript Single Currency
+const usdtBalance = await client.getSubSpotWalletBalancesV1({
+  subAccount: 'sub_trader_01',
+  currency: 'USDT',
+});
+console.log(usdtBalance.data.wallet);
+```
+</CodeGroup>
+
+---
+
+## Account Management
+
+### `getSubAccountsV1()`
+
+Lists all sub-accounts associated with the master account, including their status.
+
+**Signature**
+
+```typescript
+getSubAccountsV1(): Promise<APIResponse<{ subAccountList: SubAccountV1[] }>>
+```
+
+**Response type**
+
+```typescript
+interface SubAccountV1 {
+  accountName: string;
+  status: number; // 1 = active, other values indicate restricted/disabled
+}
+```
+
+**Example**
+
+```typescript
+const subAccounts = await client.getSubAccountsV1();
+
+subAccounts.data.subAccountList.forEach((account) => {
+  console.log(`${account.accountName}: status ${account.status}`);
+});
+```
+
+---
+
+## Broker Rebates
+
+### `getBrokerRebate(params?)`
+
+Retrieves rebate data for API broker partners. Returns rebate amounts grouped by date. An optional date range can be supplied to narrow the result set.
+
+<Note>
+  This endpoint is intended for **API broker** accounts only. A regular API key will receive an empty or restricted response.
+</Note>
+
+**Signature**
+
+```typescript
+getBrokerRebate(
+  params?: SpotBrokerRebateRequest,
+): Promise<APIResponse<SpotBrokerRebateResult>>
+```
+
+**Request type**
+
+```typescript
+interface SpotBrokerRebateRequest {
+  start_time?: number; // Unix ms — start of date range
+  end_time?: number;   // Unix ms — end of date range
+}
+```
+
+**Response type**
+
+```typescript
+interface SpotBrokerRebateRow {
+  currency: string;
+  rebate_amount: string;
+}
+
+interface SpotBrokerRebateResult {
+  rebates: {
+    [date: string]: SpotBrokerRebateRow[]; // keyed by date string e.g. "2024-01-15"
+  };
+}
+```
+
+**Example**
+
+<CodeGroup>
+```typescript Last 30 Days
+const now = Date.now();
+const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+const rebates = await client.getBrokerRebate({
+  start_time: thirtyDaysAgo,
+  end_time: now,
+});
+
+for (const [date, rows] of Object.entries(rebates.data.rebates)) {
+  rows.forEach((row) => {
+    console.log(`${date}: ${row.rebate_amount} ${row.currency}`);
+  });
+}
+```
+
+```typescript All Time
+const rebates = await client.getBrokerRebate();
+console.log(rebates.data.rebates);
+```
+</CodeGroup>
+
+---
+
+## Full Sub-Account Workflow
+
+The following example shows a common pattern: list all sub-accounts, check balances, and move funds from a sub-account back to the master account.
+
+```typescript
+import { RestClient } from 'bitmart-api';
+
+const masterClient = new RestClient({
+  apiKey: process.env.MASTER_API_KEY!,
+  apiSecret: process.env.MASTER_API_SECRET!,
+  apiMemo: process.env.MASTER_API_MEMO!,
+});
+
+async function consolidateFunds() {
+  // 1. List all sub-accounts
+  const { data: accountData } = await masterClient.getSubAccountsV1();
+  const activeAccounts = accountData.subAccountList.filter((a) => a.status === 1);
+  console.log(`Found ${activeAccounts.length} active sub-accounts`);
+
+  for (const account of activeAccounts) {
+    // 2. Check USDT balance for each sub-account
+    const { data: walletData } = await masterClient.getSubSpotWalletBalancesV1({
+      subAccount: account.accountName,
+      currency: 'USDT',
+    });
+
+    const usdtWallet = walletData.wallet[0];
+    if (!usdtWallet || Number(usdtWallet.available) < 1) continue;
+
+    // 3. Transfer available USDT back to master
+    await masterClient.submitMainTransferSubToMainV1({
+      requestNo: `recall-${account.accountName}-${Date.now()}`,
+      amount: usdtWallet.available,
+      currency: 'USDT',
+      subAccount: account.accountName,
+    });
+
+    console.log(`Recalled ${usdtWallet.available} USDT from ${account.accountName}`);
+  }
+}
+
+consolidateFunds();
+```

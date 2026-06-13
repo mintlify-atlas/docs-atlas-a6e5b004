@@ -1,0 +1,327 @@
+---
+title: "Subscribe to Public BitMart WebSocket Streams"
+sidebarTitle: "Public Streams"
+description: "Stream real-time spot and futures market data — tickers, order books, trades, and klines — via the BitMart WebSocket API without API credentials."
+---
+
+Public WebSocket streams deliver real-time market data — price tickers, order book snapshots, trade history, and candlestick (kline) data — for both spot and futures markets. No API key is required for public channels; you can create a `WebsocketClient` with no arguments and start subscribing immediately.
+
+## Setup
+
+Create the client and attach your event handlers before calling `subscribe()`. All updates arrive on the `update` event regardless of which topic or market they originate from — use the `table` field (spot) or `group` field (futures) in the payload to distinguish between channels in your handler.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient();
+
+client.on('open', (data) => {
+  console.log('Connection opened:', data?.wsKey);
+});
+
+client.on('update', (data) => {
+  // spot messages carry a `table` field; futures carry a `group` field
+  console.log('Market data received:', JSON.stringify(data));
+});
+
+client.on('reconnected', (data) => {
+  console.log('Reconnected — topics resubscribed automatically:', data);
+});
+
+client.on('response', (data) => {
+  // Confirmation that subscribe/unsubscribe was accepted
+  console.log('Server response:', data);
+});
+
+client.on('exception', (data) => {
+  console.error('Error:', data);
+});
+```
+
+## Spot Public Topics
+
+Spot topics always begin with `spot/` and use underscore-separated symbols such as `BTC_USDT`.
+
+<Tabs>
+  <Tab title="Ticker">
+    Real-time best bid/ask, last price, and 24-hour statistics for a symbol.
+
+    ```typescript
+    // Single symbol
+    client.subscribe('spot/ticker:BTC_USDT', 'spot');
+
+    // Multiple symbols in one request
+    client.subscribe(
+      [
+        'spot/ticker:BTC_USDT',
+        'spot/ticker:ETH_USDT',
+        'spot/ticker:XRP_USDT',
+        'spot/ticker:BMX_USDT',
+        'spot/ticker:SOL_USDT',
+      ],
+      'spot',
+    );
+    ```
+  </Tab>
+  <Tab title="Order Book Depth">
+    Order book snapshot with a fixed number of levels. Available depths include `depth5`, `depth20`, and `depth50`, as well as an incremental `depth/increase100` channel.
+
+    ```typescript
+    // 20-level depth snapshot
+    client.subscribe('spot/depth20:BTC_USDT', 'spot');
+
+    // 5-level depth snapshot
+    client.subscribe('spot/depth5:BTC_USDT', 'spot');
+
+    // Incremental depth updates (100 levels, sends diffs)
+    client.subscribe('spot/depth/increase100:BTC_USDT', 'spot');
+    ```
+  </Tab>
+  <Tab title="Klines (Candlesticks)">
+    OHLCV candlestick data at a specified interval. The interval is embedded in the channel name (e.g. `kline1m` for 1-minute candles).
+
+    ```typescript
+    // 1-minute candles
+    client.subscribe('spot/kline1m:BTC_USDT', 'spot');
+    ```
+  </Tab>
+  <Tab title="Trades">
+    Stream of individual trades as they are executed on the exchange.
+
+    ```typescript
+    client.subscribe('spot/trade:BTC_USDT', 'spot');
+    ```
+  </Tab>
+</Tabs>
+
+## Futures Public Topics
+
+Futures topics begin with `futures/` and use symbols without underscores (e.g. `BTCUSDT`). The client automatically routes these to the v2 futures public WebSocket connection (`futuresPublicV2`).
+
+<Tabs>
+  <Tab title="Ticker">
+    Subscribing to `futures/ticker` (no symbol suffix) delivers tickers for **all** active futures contracts in a single stream.
+
+    ```typescript
+    client.subscribe('futures/ticker', 'futures');
+    ```
+  </Tab>
+  <Tab title="Order Book Depth">
+    Order book snapshots for futures contracts.
+
+    ```typescript
+    // 20-level depth snapshot for BTCUSDT
+    client.subscribe('futures/depth20:BTCUSDT', 'futures');
+    ```
+  </Tab>
+  <Tab title="Trades">
+    Individual trade events for a specific futures contract.
+
+    ```typescript
+    client.subscribe('futures/trade:BTCUSDT', 'futures');
+    ```
+  </Tab>
+  <Tab title="Klines (Candlesticks)">
+    Futures kline channels use the `klineBin` prefix followed by the interval (e.g. `klineBin1m`, `klineBin5m`, `klineBin1h`).
+
+    ```typescript
+    // 1-minute klines
+    client.subscribe('futures/klineBin1m:BTCUSDT', 'futures');
+
+    // 5-minute klines
+    client.subscribe('futures/klineBin5m:BTCUSDT', 'futures');
+    ```
+  </Tab>
+</Tabs>
+
+## Multiple Subscriptions at Once
+
+Both `subscribe()` and `subscribeTopics()` accept arrays of topic strings, which are batched into a single subscribe message (up to 20 topics per request). This is the most efficient way to subscribe to many streams at startup.
+
+```typescript
+// Mixed futures klines — all sent in one batched request
+client.subscribe(
+  [
+    'futures/klineBin1m:BTCUSDT',
+    'futures/klineBin1m:ETHUSDT',
+    'futures/klineBin1m:XRPUSDT',
+    'futures/klineBin1m:BMXUSDT',
+    'futures/klineBin1m:SOLUSDT',
+  ],
+  'futures',
+);
+```
+
+You can also use `subscribeTopics()` to mix spot and futures topics in one call — the library will route each to its correct connection automatically:
+
+```typescript
+client.subscribeTopics([
+  'spot/ticker:BTC_USDT',
+  'spot/depth20:BTC_USDT',
+  'futures/ticker',
+  'futures/depth20:BTCUSDT',
+]);
+```
+
+## Complete Working Example
+
+The example below is a complete, runnable Node.js script adapted from the official SDK examples. It subscribes to several spot tickers and a range of futures klines, and logs every update.
+
+<CodeGroup>
+```typescript Spot Public
+import { WebsocketClient } from 'bitmart-api';
+
+async function start() {
+  const client = new WebsocketClient();
+
+  client.on('open', (data) => {
+    console.log('open: ', data?.wsKey);
+  });
+
+  // Data received
+  client.on('update', (data) => {
+    console.info('data received: ', JSON.stringify(data));
+  });
+
+  // Something happened, attempting to reconnect
+  client.on('reconnect', (data) => {
+    console.log('reconnect: ', data);
+  });
+
+  // Reconnect successful
+  client.on('reconnected', (data) => {
+    console.log('reconnected: ', data);
+  });
+
+  // Connection closed. If unexpected, expect reconnect -> reconnected.
+  client.on('close', (data) => {
+    console.error('close: ', data);
+  });
+
+  // Reply to a request, e.g. "subscribe"/"unsubscribe"/"authenticate"
+  client.on('response', (data) => {
+    console.info('response: ', data);
+  });
+
+  client.on('exception', (data) => {
+    console.error('exception: ', data);
+  });
+
+  try {
+    // Subscribe to multiple spot tickers in a single request
+    client.subscribe(
+      [
+        'spot/ticker:BTC_USDT',
+        'spot/ticker:ETH_USDT',
+        'spot/ticker:XRP_USDT',
+        'spot/ticker:BMX_USDT',
+        'spot/ticker:SOL_USDT',
+      ],
+      'spot',
+    );
+  } catch (e) {
+    console.error('Req error: ', e);
+  }
+}
+
+start();
+```
+
+```typescript Futures Public
+import { WebsocketClient } from 'bitmart-api';
+
+async function start() {
+  const client = new WebsocketClient();
+
+  client.on('open', (data) => {
+    console.log('connected ', data?.wsKey);
+  });
+
+  // Data received
+  client.on('update', (data) => {
+    console.info('data received: ', JSON.stringify(data));
+  });
+
+  // Something happened, attempting to reconnect
+  client.on('reconnect', (data) => {
+    console.log('reconnect: ', data);
+  });
+
+  // Reconnect successful
+  client.on('reconnected', (data) => {
+    console.log('reconnected: ', data);
+  });
+
+  // Connection closed. If unexpected, expect reconnect -> reconnected.
+  client.on('close', (data) => {
+    console.error('close: ', data);
+  });
+
+  // Reply to a request, e.g. "subscribe"/"unsubscribe"/"authenticate"
+  client.on('response', (data) => {
+    console.info('response: ', data);
+  });
+
+  client.on('exception', (data) => {
+    console.error('exception: ', data);
+  });
+
+  try {
+    // Subscribe to multiple futures klines in one request
+    client.subscribe(
+      [
+        'futures/klineBin1m:BTCUSDT',
+        'futures/klineBin1m:ETHUSDT',
+        'futures/klineBin1m:XRPUSDT',
+        'futures/klineBin1m:BMXUSDT',
+        'futures/klineBin1m:SOLUSDT',
+      ],
+      'futures',
+    );
+  } catch (e) {
+    console.error('Req error: ', e);
+  }
+}
+
+start();
+```
+</CodeGroup>
+
+## Handling Update Events
+
+The `update` event payload contains different fields depending on the market:
+
+- **Spot** messages include a `table` property (e.g. `"spot/ticker"`) and a `data` array.
+- **Futures** messages include a `group` property (e.g. `"futures/klineBin1m:BTCUSDT"`) and a `data` array.
+
+Use these fields to route messages to the correct handler:
+
+```typescript
+client.on('update', (data) => {
+  // Spot message
+  if (data.table) {
+    const channel = data.table; // e.g. 'spot/ticker'
+    const updates = data.data;  // array of update objects
+
+    if (channel === 'spot/ticker') {
+      for (const ticker of updates) {
+        console.log(`${ticker.symbol} last price: ${ticker.last_price}`);
+      }
+    }
+  }
+
+  // Futures message
+  if (data.group) {
+    const channel = data.group; // e.g. 'futures/klineBin1m:BTCUSDT'
+    const updates = data.data;
+
+    if (channel.startsWith('futures/klineBin')) {
+      console.log('Futures kline update:', updates);
+    }
+  }
+});
+```
+
+<Tip>
+  All subscribed topics are stored internally and automatically resubscribed if the connection drops and reconnects. You do not need to re-call `subscribe()` after a `reconnected` event.
+</Tip>

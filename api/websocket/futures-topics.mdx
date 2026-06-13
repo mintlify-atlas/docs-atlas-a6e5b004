@@ -1,0 +1,422 @@
+---
+title: "Futures WebSocket Topics Reference: Streams & Events"
+sidebarTitle: "Futures Topics"
+description: "Complete reference for BitMart futures WebSocket topics: ticker, depth, kline, trades, and private order, position, and asset balance streams."
+---
+
+The BitMart SDK streams all futures WebSocket data through a single `WebsocketClient`. Public topics — ticker, order book depth, kline candlesticks, and trades — connect automatically without credentials. Private topics (orders, positions, and asset balances) require your API key, secret, and memo. All futures topics use the `'futures'` market identifier in `subscribe()` and data arrives on the `'update'` event. The client connects to the **V2 futures WebSocket** endpoint by default, which also supports a demo trading environment.
+
+<Note>
+  Futures symbols use no underscore separator. Use `BTCUSDT`, `ETHUSDT`, etc. — not `BTC_USDT`. This is different from the spot market format.
+</Note>
+
+---
+
+## Setup
+
+<Tabs>
+  <Tab title="Public (no credentials)">
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient();
+
+client.on('update', (data) => {
+  console.log('Received:', JSON.stringify(data));
+});
+
+client.on('response', (data) => {
+  console.log('Response:', data);
+});
+
+client.on('exception', (data) => {
+  console.error('Exception:', data);
+});
+```
+  </Tab>
+  <Tab title="Private (with credentials)">
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+client.on('authenticated', (data) => {
+  console.log('Authenticated on', data?.wsKey);
+});
+
+client.on('update', (data) => {
+  console.log('Private update:', JSON.stringify(data));
+});
+```
+  </Tab>
+  <Tab title="Demo Trading">
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+// Demo trading uses wss://openapi-wsdemo-v2.bitmart.com
+// API keys are the same as production
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+  demoTrading: true,
+});
+
+client.on('authenticated', (data) => {
+  console.log('Demo environment authenticated:', data?.wsKey);
+});
+
+client.on('update', (data) => {
+  console.log('Demo update:', JSON.stringify(data));
+});
+
+// Subscribe to private futures topics in the demo environment
+client.subscribe(
+  ['futures/asset:USDT', 'futures/asset:BTC'],
+  'futures',
+);
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Public Futures Topics
+
+Public topics provide live market data and do not require authentication.
+
+### Topic Reference
+
+| Topic format | Description |
+|---|---|
+| `futures/ticker` | All futures tickers — best bid/ask and 24 h stats for every contract |
+| `futures/depth5:{symbol}` | Order book snapshot — top 5 bid and ask levels |
+| `futures/depth20:{symbol}` | Order book snapshot — top 20 bid and ask levels |
+| `futures/depth50:{symbol}` | Order book snapshot — top 50 bid and ask levels |
+| `futures/trade:{symbol}` | Real-time executed trade feed |
+| `futures/klineBin1m:{symbol}` | 1-minute candlestick (OHLCV) |
+| `futures/klineBin3m:{symbol}` | 3-minute candlestick |
+| `futures/klineBin5m:{symbol}` | 5-minute candlestick |
+| `futures/klineBin15m:{symbol}` | 15-minute candlestick |
+| `futures/klineBin30m:{symbol}` | 30-minute candlestick |
+| `futures/klineBin1h:{symbol}` | 1-hour candlestick |
+| `futures/klineBin2h:{symbol}` | 2-hour candlestick |
+| `futures/klineBin4h:{symbol}` | 4-hour candlestick |
+| `futures/klineBin1d:{symbol}` | 1-day candlestick |
+| `futures/klineBin1w:{symbol}` | 1-week candlestick |
+
+---
+
+### Ticker
+
+The `futures/ticker` topic streams data for **all** contracts simultaneously — no symbol suffix is required.
+
+```typescript
+client.subscribe('futures/ticker', 'futures');
+```
+
+---
+
+### Order Book Depth
+
+<CodeGroup>
+```typescript depth5
+client.subscribe('futures/depth5:BTCUSDT', 'futures');
+```
+
+```typescript depth20
+client.subscribe('futures/depth20:BTCUSDT', 'futures');
+```
+
+```typescript depth50
+client.subscribe('futures/depth50:BTCUSDT', 'futures');
+```
+</CodeGroup>
+
+---
+
+### Trades
+
+```typescript
+client.subscribe('futures/trade:BTCUSDT', 'futures');
+```
+
+---
+
+### Kline / Candlestick
+
+Futures kline topics use the `klineBin` prefix and lowercase interval suffixes. Multiple symbols and intervals can be batched into a single `subscribe()` call, which is more efficient than separate calls.
+
+<CodeGroup>
+```typescript Single Symbol & Interval
+// 1-minute candles for BTCUSDT
+client.subscribe('futures/klineBin1m:BTCUSDT', 'futures');
+```
+
+```typescript Multiple Symbols — Same Interval
+// 1-minute candles for several contracts
+client.subscribe(
+  [
+    'futures/klineBin1m:BTCUSDT',
+    'futures/klineBin1m:ETHUSDT',
+    'futures/klineBin1m:XRPUSDT',
+    'futures/klineBin1m:BMXUSDT',
+    'futures/klineBin1m:SOLUSDT',
+  ],
+  'futures',
+);
+```
+
+```typescript Multiple Intervals — Single Symbol
+// 1m, 15m, 1h, and 1d candles for BTCUSDT
+client.subscribe(
+  [
+    'futures/klineBin1m:BTCUSDT',
+    'futures/klineBin15m:BTCUSDT',
+    'futures/klineBin1h:BTCUSDT',
+    'futures/klineBin1d:BTCUSDT',
+  ],
+  'futures',
+);
+```
+</CodeGroup>
+
+**Available intervals**
+
+| Topic suffix | Interval |
+|---|---|
+| `klineBin1m` | 1 minute |
+| `klineBin3m` | 3 minutes |
+| `klineBin5m` | 5 minutes |
+| `klineBin15m` | 15 minutes |
+| `klineBin30m` | 30 minutes |
+| `klineBin1h` | 1 hour |
+| `klineBin2h` | 2 hours |
+| `klineBin4h` | 4 hours |
+| `klineBin1d` | 1 day |
+| `klineBin1w` | 1 week |
+
+---
+
+## Private Futures Topics
+
+Private topics deliver account-level updates. The `WebsocketClient` authenticates the private connection automatically when credentials are provided — no manual login step is required.
+
+<Warning>
+  Private topics require `apiKey`, `apiSecret`, and `apiMemo` to be set in the `WebsocketClient` constructor. Without them, subscriptions to private topics will not deliver data.
+</Warning>
+
+### Topic Reference
+
+| Topic format | Description |
+|---|---|
+| `futures/order` | All order events: new, cancelled, partially filled, filled |
+| `futures/position` | All position updates across all contracts |
+| `futures/asset:{currency}` | Asset/balance update for a specific settlement currency |
+
+<Note>
+  `futures/order` and `futures/position` topics do not take a symbol suffix — they deliver events for all contracts on the account. To filter by contract, inspect the symbol field in the received message data.
+</Note>
+
+---
+
+### Order Updates
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+client.on('update', (data) => {
+  if (data.group === 'futures/order') {
+    console.log('Futures order update:', JSON.stringify(data.data));
+  }
+});
+
+client.subscribe('futures/order', 'futures');
+```
+
+---
+
+### Position Updates
+
+```typescript
+client.subscribe('futures/position', 'futures');
+```
+
+---
+
+### Asset / Balance Updates
+
+Subscribe to balance changes for one or more settlement currencies. Multiple currencies can be batched in a single call.
+
+<CodeGroup>
+```typescript Single Currency
+client.subscribe('futures/asset:USDT', 'futures');
+```
+
+```typescript Multiple Currencies
+client.subscribe(
+  ['futures/asset:USDT', 'futures/asset:BTC', 'futures/asset:ETH'],
+  'futures',
+);
+```
+</CodeGroup>
+
+---
+
+## Demo Trading Environment
+
+BitMart provides a simulated trading environment for futures. Set `demoTrading: true` when constructing the `WebsocketClient` to connect to the demo WebSocket endpoint (`wss://openapi-wsdemo-v2.bitmart.com`). API keys are shared between production and demo environments.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+  demoTrading: true, // connect to simulated trading environment
+});
+
+client.on('open', (data) => {
+  console.log('Demo WebSocket connected:', data?.wsKey);
+});
+
+client.on('authenticated', (data) => {
+  console.log('Demo connection authenticated:', data?.wsKey);
+});
+
+client.on('update', (data) => {
+  console.log('Demo update:', JSON.stringify(data));
+});
+
+// Public topics work in demo too
+client.subscribe('futures/ticker', 'futures');
+
+// Private topics in demo
+client.subscribe(
+  ['futures/asset:USDT', 'futures/order', 'futures/position'],
+  'futures',
+);
+```
+
+<Note>
+  The `demoTrading` flag only affects the **V2 futures** WebSocket endpoints. Spot WebSocket connections are not affected and do not have a demo environment.
+</Note>
+
+---
+
+## Handling the `update` Event
+
+All incoming messages emit on the single `'update'` event. Inspect `data.group` (or `data.table` depending on message type) to identify the originating topic and fan out to the appropriate handler.
+
+```typescript
+import { WebsocketClient } from 'bitmart-api';
+
+const client = new WebsocketClient({
+  apiKey: process.env.API_KEY!,
+  apiSecret: process.env.API_SECRET!,
+  apiMemo: process.env.API_MEMO!,
+});
+
+client.on('update', (data) => {
+  const topic: string = data.group ?? data.table ?? '';
+
+  if (topic.startsWith('futures/klineBin')) {
+    console.log('Kline update:', data.data);
+    return;
+  }
+
+  switch (topic) {
+    case 'futures/ticker':
+      console.log('Ticker update:', data.data);
+      break;
+    case 'futures/depth5':
+    case 'futures/depth20':
+    case 'futures/depth50':
+      console.log('Depth update:', data.data);
+      break;
+    case 'futures/trade':
+      console.log('Trade update:', data.data);
+      break;
+    case 'futures/order':
+      console.log('Order update:', data.data);
+      break;
+    case 'futures/position':
+      console.log('Position update:', data.data);
+      break;
+    case 'futures/asset':
+      console.log('Asset update:', data.data);
+      break;
+    default:
+      console.log('Unhandled topic:', topic, data);
+  }
+});
+
+// Mix of public and private topics
+client.subscribe(
+  [
+    'futures/ticker',
+    'futures/depth20:BTCUSDT',
+    'futures/trade:BTCUSDT',
+    'futures/klineBin1m:BTCUSDT',
+    'futures/klineBin1h:BTCUSDT',
+  ],
+  'futures',
+);
+
+client.subscribe(
+  ['futures/order', 'futures/position', 'futures/asset:USDT'],
+  'futures',
+);
+```
+
+---
+
+## Unsubscribing
+
+Pass the same topic strings and `'futures'` market to `unsubscribe()`. Unsubscribed topics are removed from the internal cache and won't be re-subscribed after a reconnect.
+
+```typescript
+// Single topic
+client.unsubscribe('futures/ticker', 'futures');
+
+// Multiple topics at once
+client.unsubscribe(
+  ['futures/klineBin1m:BTCUSDT', 'futures/depth5:BTCUSDT'],
+  'futures',
+);
+```
+
+---
+
+## Connection Events
+
+| Event | When it fires |
+|---|---|
+| `open` | WebSocket connection established |
+| `authenticated` | Private connection successfully authenticated |
+| `response` | Server acknowledgement of a subscribe/unsubscribe request |
+| `update` | Market data or account data received |
+| `reconnect` | Connection lost, attempting to reconnect |
+| `reconnected` | Reconnect successful (topics re-subscribed automatically) |
+| `close` | Connection closed |
+| `exception` | An error occurred |
+
+```typescript
+client.on('open', (data) => console.log('Connected:', data?.wsKey));
+client.on('authenticated', (data) => console.log('Authenticated:', data?.wsKey));
+client.on('reconnect', (data) => console.log('Reconnecting...', data));
+client.on('reconnected', (data) => console.log('Reconnected:', data));
+client.on('close', (data) => console.error('Closed:', data));
+client.on('exception', (data) => console.error('Error:', data));
+```
